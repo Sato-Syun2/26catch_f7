@@ -14,17 +14,17 @@
 #include "math.h"
 #include "stdio.h"
 
-extern Robstride_DeviceInfo robstride_dev_info_global[2];
-extern Robstride_FeedbackData robstride_fb[2];
+extern Robstride_DeviceInfo robstride_dev_info_global[];
+extern Robstride_FeedbackData robstride_fb[];
 extern const uint8_t master_can_id;
 extern const uint8_t num_of_robstride;
 extern bool robstride_first_flag;
-extern volatile float robstride_target_value[2];
-extern Robstride_FeedbackData feedback_data[2];
+extern volatile float robstride_target_value[];
+extern Robstride_FeedbackData feedback_data[];
 
 extern CAN_HandleTypeDef hcan3;
 
-extern float feedback_offset[2];
+extern float feedback_offset[];
 extern volatile float max_angle_limit[2];
 extern volatile float min_angle_limit[2];
 

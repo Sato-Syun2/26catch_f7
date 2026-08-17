@@ -198,10 +198,9 @@ void Robstride_WhenCANRxFifo0MsgPending(CAN_HandleTypeDef *const phcan) {
     CAN_RxHeaderTypeDef rxHeader;
     uint8_t rxData[8];
     if (HAL_CAN_GetRxMessage(phcan, CAN_RX_FIFO0, &rxHeader, rxData) != HAL_OK) {
-        // Reception Error
-        //        printf("GetRxMessage error\n\r");
-        //        Error_Handler();
+        return;
     }
+    if (rxHeader.IDE != CAN_ID_EXT) return;
 
     uint8_t motor_id = 0;
     uint32_t ExtId = rxHeader.ExtId;
@@ -224,8 +223,6 @@ void Robstride_WhenCANRxFifo0MsgPending(CAN_HandleTypeDef *const phcan) {
         motor_id = (uint8_t)(ExtId & 0xFF);
         Robstride_ProcessFault(rxData, motor_id);
         // printf("response4 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
-    } else {
-        printf("No such response\n\r");
     }
     // printf("got response from %d\n\r", (int)motor_id);
 }
@@ -235,10 +232,9 @@ void Robstride_WhenCANRxFifo1MsgPending(CAN_HandleTypeDef *const phcan) {
     CAN_RxHeaderTypeDef rxHeader;
     uint8_t rxData[8];
     if (HAL_CAN_GetRxMessage(phcan, CAN_RX_FIFO1, &rxHeader, rxData) != HAL_OK) {
-        // Reception Error
-        //        printf("GetRxMessage error\n\r");
-        //        Error_Handler();
+        return;
     }
+    if (rxHeader.IDE != CAN_ID_EXT) return;
 
     uint8_t motor_id = 0;
     uint32_t ExtId = rxHeader.ExtId;
@@ -261,8 +257,6 @@ void Robstride_WhenCANRxFifo1MsgPending(CAN_HandleTypeDef *const phcan) {
         motor_id = (uint8_t)(ExtId & 0xFF);
         Robstride_ProcessFault(rxData, motor_id);
         // printf("response4 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
-    } else {
-        printf("No such response\n\r");
     }
     // printf("got response from %d\n\r", (int)motor_id);
 }

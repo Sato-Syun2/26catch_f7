@@ -25,7 +25,6 @@
 #include "usb_otg.h"
 #include "gpio.h"
 
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "math.h"
@@ -122,6 +121,7 @@ void HAL_CAN_TxMailbox2AbortCallback(CAN_HandleTypeDef *hcan){
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan){
   CANLib_WhenCANRxFifo0MsgPending(hcan, &num_of_devices);
   RoboMas_WhenCANRxFifo0MsgPending(hcan);
+  Robstride_WhenCANRxFifo0MsgPending(hcan);
 }
 
 void HAL_CAN_RxFifo1MsgPendingCallback(CAN_HandleTypeDef *hcan){

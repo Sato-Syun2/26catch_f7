@@ -68,8 +68,18 @@ void Robstride_WaitForConnect(Robstride_DeviceInfo dev_info_array[], const uint8
     while (!flag) {
         flag = 1;
         for (uint8_t i = 0; i < size; i++) {
-            // Robstrideは制御司令を送ると自動的にフィードバックを返すため、control disableを送る
-            Robstride_ControlDisable(&dev_info_array[i], f_delay);
+            /*
+             * 電源投入前は応答が来ないため、応答待ちの Robstride_ControlDisable()
+             * をここで使うと以後の再送が止まる。リセット要求を1回だけ送信し、
+             * 次の周回で再試行する。
+             */
+            const uint8_t data[8] = {0};
+            Robstride_SendBytes(dev_info_array[i].phcan,
+                                dev_info_array[i].device_id,
+                                CMD_RESET,
+                                dev_info_array[i].master_id,
+                                data,
+                                sizeof(data));
             // printf("Checking Active Report Status for motor %d...\n\r", i + 1);
             // Robstride_CheckActiveReportStatus(&dev_info_array[i]);
             f_delay(50); // 応答を待つためのディレイ
@@ -504,9 +514,10 @@ void Robstride_Calibration(Robstride_DeviceInfo *const device_info, float calib_
  * @retval なし
  */
 void Robstride_SetControl(Robstride_DeviceInfo *const dev_info, const ROBSTRIDE_CTRL_TYPE new_ctrl_type, DelayFunction_t f_delay) {
-    if (dev_info->ctrl_param.ctrl_type == new_ctrl_type) {
-        return;
-    }
+    /*
+     * ctrl_type は設定値であり、モーター側の現在値ではない。起動時には
+     * 同じ値でも必ず CAN 経由で書き込んで、電源投入直後のモーターへ反映する。
+     */
     Robstride_ControlDisable(dev_info, f_delay);                              // control_disable時のみ制御モードが変更可能
     dev_info->ctrl_param.ctrl_type = new_ctrl_type;                           // 新しい制御モードを設定
     Robstride_WriteIntData(dev_info, ADDR_RUN_MODE, (uint16_t)new_ctrl_type); // 実行モード (制御モード) を書き込み

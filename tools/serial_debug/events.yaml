@@ -1,0 +1,48 @@
+# patterns は Python 正規表現として大文字小文字を区別せず照合する。
+# 現場固有のエラーコードやウォッチドッグ通知は、この一覧に追加する。
+events:
+  - name: hardfault
+    severity: critical
+    patterns:
+      - "HardFault"
+      - "Hard Fault"
+  - name: memory_management_fault
+    severity: critical
+    patterns:
+      - "MemManage"
+      - "Memory Management Fault"
+  - name: bus_fault
+    severity: critical
+    patterns:
+      - "BusFault"
+      - "Bus Fault"
+  - name: usage_fault
+    severity: critical
+    patterns:
+      - "UsageFault"
+      - "Usage Fault"
+  - name: watchdog_reset
+    severity: error
+    patterns:
+      - "IWDG"
+      - "WWDG"
+      - "watchdog"
+  - name: assertion_failed
+    severity: error
+    patterns:
+      - "assert(?:ion)? failed"
+      - "configASSERT"
+  - name: stack_overflow
+    severity: error
+    patterns:
+      - "stack overflow"
+      - "StackOverflow"
+  - name: heap_failure
+    severity: error
+    patterns:
+      - "malloc failed"
+      - "heap.*(?:fail|full|corrupt)"
+  - name: lwip_error
+    severity: warning
+    patterns:
+      - "lwip.*(?:err|fail|timeout)"

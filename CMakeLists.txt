@@ -69,6 +69,9 @@ endfunction()
 
 add_canlib(canlib_robomaster canlib_robomaster)
 add_canlib(canlib_robstride canlib_robstride)
+# Robstride の制限値設定で fminf/fmaxf を使用する。
+# 静的ライブラリの後にリンクされるよう依存先として宣言する。
+target_link_libraries(canlib_robstride PUBLIC m)
 
 # micro-ROS の事前生成済み静的ライブラリを CMake ターゲットとして登録する。
 # このライブラリは STM32/FreeRTOS 向けに生成されているため、ホスト用の

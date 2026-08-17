@@ -13,8 +13,8 @@
 #include "math.h"
 #include "stdio.h"
 
-extern RoboMas_DeviceInfo robomas_dev_info_global[4];
-extern RoboMas_FeedbackData robomas_fb[4];
+extern RoboMas_DeviceInfo robomas_dev_info_global[];
+extern RoboMas_FeedbackData robomas_fb[];
 
 extern const uint8_t num_of_c620;
 extern const uint8_t num_of_c610;

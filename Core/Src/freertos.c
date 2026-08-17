@@ -39,6 +39,7 @@
 #include "usart.h"
 #include "lwip/netif.h"
 #include "CAN_Main.h"
+#include "can_devices.h"
 
 #include "CAN_Robstride.h"
 #include "CAN_Robstride_Def.h"
@@ -236,7 +237,7 @@ void StartMROSTask(void const * argument)
 
   for(;;)
   {
-	    const char* agent_ip = "192.168.4.100";
+	    const char* agent_ip = "192.168.1.121";
 			rmw_uros_set_custom_transport(
 			  false,                 // UDP を使う
 			  (void *) agent_ip,   // Agent IP address
@@ -352,13 +353,14 @@ void StartRobstrideTask(void const * argument)
 //	    	  Robstride_SetTarget(&robstride_dev_info_global[0], current_target);
 //	    	  printf("set target OK\n\r");
 	  if(robstride_first_flag == true){
-		   Robstride_SetTarget(&robstride_dev_info_global[0], robstride_target_value[0]);
-		   Robstride_SetTarget(&robstride_dev_info_global[1], robstride_target_value[1]);
-		   printf("target1:%f, target2:%f\n\r", robstride_target_value[0], robstride_target_value[1]);
+		   for (uint8_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
+		     Robstride_SetTarget(&robstride_dev_info_global[i], robstride_target_value[i]);
+		   }
 	  }
 
-      feedback_data[0] = Read_Robstride_FeedbackData(&robstride_dev_info_global[0]);
-      feedback_data[1] = Read_Robstride_FeedbackData(&robstride_dev_info_global[1]);
+      for (uint8_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
+        feedback_data[i] = Read_Robstride_FeedbackData(&robstride_dev_info_global[i]);
+      }
 
       HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
       osDelay(10);
@@ -395,27 +397,38 @@ void StartRobomasTask(void const * argument)
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
 
-/* Point.x/y をそれぞれ Robstride 02/05 の位置目標値として受け取る。 */
+/* Point.x/y をそれぞれ Robstride スロット 0/1 の位置目標値として受け取る。 */
 static void point_callback(const void *msgin)
 {
+#if ROBSTRIDE_DEVICE_COUNT > 0U
   const geometry_msgs__msg__Point *point = msgin;
 
   robstride_target_value[0] = (float)point->x;
+#else
+  (void)msgin;
+#endif
+#if ROBSTRIDE_DEVICE_COUNT > 1U
   robstride_target_value[1] = (float)point->y;
+#endif
   robstride_first_flag = true;
 }
 
-/* Robstride 02 の位置・速度・電流を Point メッセージとして送信する。 */
+/* Robstride スロット 0 の位置・速度・電流を Point メッセージとして送信する。 */
 static void feedback_timer_callback(rcl_timer_t *timer, int64_t last_call_time)
 {
   (void)timer;
   (void)last_call_time;
 
   geometry_msgs__msg__Point feedback_msg = {
-    .x = feedback_data[0].position,
-    .y = feedback_data[0].velocity,
-    .z = feedback_data[0].current,
+    .x = 0.0,
+    .y = 0.0,
+    .z = 0.0,
   };
+#if ROBSTRIDE_DEVICE_COUNT > 0U
+  feedback_msg.x = feedback_data[0].position;
+  feedback_msg.y = feedback_data[0].velocity;
+  feedback_msg.z = feedback_data[0].current;
+#endif
   RCCHECK(rcl_publish(&robstride_fb_publisher, &feedback_msg, NULL));
 }
 

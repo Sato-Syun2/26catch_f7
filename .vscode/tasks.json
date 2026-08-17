@@ -1,0 +1,18 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Flash STM32",
+            "type": "shell",
+            "command": "/opt/st/stm32cubeclt_1.18.0/STM32CubeProgrammer/bin/STM32_Programmer_CLI",
+            "args": [
+                "-c", "port=SWD",
+                "-w", "${workspaceFolder}/build/Debug/26catch_f7.elf",
+                "-v",
+                "-rst"
+            ],
+            "group": "build",
+            "problemMatcher": []
+        }
+    ]
+}
