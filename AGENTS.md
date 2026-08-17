@@ -1,34 +1,59 @@
-# Git workflow
+# Project
 
-- main ブランチへ直接コミットしない。
-- 作業開始時に現在のブランチを確認する。
-- 機能追加は feature/<name> ブランチを使用する。
-- バグ修正は fix/<name> ブランチを使用する。
-- 実験的変更は experiment/<name> ブランチを使用する。
+STM32CubeMX で生成された STM32F767ZIT6 / NUCLEO-F767ZI 向けファームウェア。
 
-## Before commit
+主な構成:
 
-コミット前に必ず以下を行う。
+* STM32 HAL / LL
+* FreeRTOS
+* LwIP
+* CAN1 / CAN2 / CAN3
+* USART3
+* USB OTG FS
+* Ethernet
+* CMake + Ninja
+* ARM GNU Toolchain
 
-1. git diff を確認する。
-2. 不要な変更が含まれていないことを確認する。
-3. プロジェクトをビルドする。
-4. 実行可能なテストがあれば実行する。
-5. ビルドまたはテストが失敗している場合はコミットしない。
+CubeMX 設定元は `26catch_f7.ioc`。
 
-## Commit
+# Build
 
-- 1コミットにつき1つの論理的変更にする。
-- 無関係な変更を同じコミットに含めない。
-- コミットメッセージには変更内容と目的を簡潔に記述する。
+Debug:
 
-## Push
+```sh
+cmake --preset Debug
+cmake --build --preset Debug
+```
 
-- 作業ブランチへの push は許可する。
-- main への push は行わない。
-- force push は行わない。
+Release:
 
-## Merge
+```sh
+cmake --preset Release
+cmake --build --preset Release
+```
 
-- mainへのmergeはユーザーが行う。
-- Codexはmainへのmergeを行わない。
+通常のコード変更では、可能なら Debug / Release の両方をビルドする。
+
+# STM32 / CubeMX rules
+
+* CubeMX 生成コードは、可能な限り `USER CODE BEGIN/END` 内で変更する。
+* コメントは原則日本語で書く。自動生成されたコメントは削除しない。
+* CubeMX 再生成時に消える可能性のある変更を生成領域へ直接追加しない。
+* `.ioc` と生成コードの設定を矛盾させない。
+* CubeMX 再生成後は `ioc` を確認し、意図しない変更や削除がないことを確認する。
+* `Drivers/`、`Middlewares/` の外部・生成コードは、必要性が明確でない限り変更しない。
+* `micro_ros_stm32cubemx_utils/` は micro-ROS 関連作業の場合のみ変更する。
+
+# CMake rules
+
+* 新しいソースやライブラリを追加した場合は、必要な CMake 定義も更新する。
+* MCU、FPU、ABI、リンカ設定を不用意に変更しない。
+* Cortex-M7 / `fpv5-d16` / hard-float の設定を維持する。
+* リンカスクリプトやメモリ設定を変更した場合は、ビルド結果とメモリ使用量を確認する。
+
+# Hardware safety
+
+* 実機接続が必要な操作を、成功したと仮定しない。
+* ST-LINK、CubeProgrammer、その他の書き込みコマンドを推測して実行しない。
+* ファームウェアのビルド成功と実機動作確認を区別する。
+* CAN、Ethernet、USB、モータ制御など実機依存の変更について、未確認の場合はその旨を明示する。
