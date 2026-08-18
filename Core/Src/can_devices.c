@@ -67,10 +67,10 @@ RoboMas_DeviceInfo robomas_dev_info_global[ROBOMAS_DEVICE_STORAGE_COUNT] = {
     {.device_type = ROBOMASTER_C610, .device_id = 2U},
 #endif
 #if ROBOMAS_C620_COUNT > 0U
-    {.device_type = ROBOMASTER_C620, .device_id = 3U},
+    {.device_type = ROBOMASTER_C620, .device_id = 4U},
 #endif
 #if ROBOMAS_C620_COUNT > 1U
-    {.device_type = ROBOMASTER_C620, .device_id = 4U},
+    {.device_type = ROBOMASTER_C620, .device_id = 3U},
 #endif
 };
 
@@ -83,7 +83,7 @@ static void configure_robomas_common(RoboMas_DeviceInfo *device)
     RoboMas_Ctrl_StructTypedef *ctrl = &device->ctrl_param;
 
     ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_INTERNAL;
-    ctrl->ctrl_type = ROBOMAS_CTRL_VEL;
+    ctrl->ctrl_type = ROBOMAS_CTRL_POS;
     ctrl->current_limit = ROBOMAS_LIMIT_DISABLE;
     ctrl->velocity_limit = ROBOMAS_LIMIT_DISABLE;
 }
@@ -95,7 +95,7 @@ static void configure_c610_1(void)
     configure_robomas_common(&robomas_dev_info_global[0]);
 
     ctrl->rotation = ROBOMAS_ROT_CW;
-    ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f;
+    ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f * 2.0f;
     ctrl->pid_vel.kp = 2.0f;
     ctrl->pid_vel.ki = 4.0f;
     ctrl->pid_vel.kd = 0.0f;
@@ -127,8 +127,8 @@ static void configure_c610_2(void)
 /* C620 #1（CAN ID 3）の設定。 */
 static void configure_c620_1(void)
 {
-    RoboMas_Ctrl_StructTypedef *ctrl = &robomas_dev_info_global[2].ctrl_param;
-    configure_robomas_common(&robomas_dev_info_global[2]);
+    RoboMas_Ctrl_StructTypedef *ctrl = &robomas_dev_info_global[0].ctrl_param;
+    configure_robomas_common(&robomas_dev_info_global[0]);
 
     ctrl->rotation = ROBOMAS_ROT_ACW;
     ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f;

@@ -334,7 +334,6 @@ void StartMROSTask(void const * argument)
         break;
       }
       osDelay(1);  // FreeRTOSの1msスケジューリング
-      printf("micro-ROS connected.\r\n");
     }
 
     printf("micro-ROS disconnected.\r\n");
@@ -405,18 +404,25 @@ void StartRobstrideTask(void const * argument)
 void StartRobomasTask(void const * argument)
 {
   /* USER CODE BEGIN StartRobomasTask */
+  // static int16_t roop_count = 0;
+  // static int16_t roop_count_max = 100;
   /* Infinite loop */
   for(;;)
   {
-//	  RoboMas_SendRequest(robomas_dev_info_global, num_of_robomas, 1000.0f, &hcan1);//制御する
-//	  RoboMas_SetTarget(&robomas_dev_info_global[0], 1.0f);//目標値を設定
-//	  for(int i=0; i<num_of_robomas; i++){
-//	      robomas_fb[i]=Get_RoboMas_FeedbackData(&robomas_dev_info_global[i]);
-	      //フィードバックを受け取る
-//	      printf("M3508%d : %d\r\n", i, (int)(robomas_fb[i].position));
-	      //velocityとcurrentもある
-
-    osDelay(1);
+#if ROBOMAS_DEVICE_COUNT > 0U
+	  RoboMas_SendRequest(robomas_dev_info_global, num_of_robomas, 500.0f, &hcan2);//制御する
+	  for(int i=0; i<num_of_robomas; i++){
+	      robomas_fb[i]=Get_RoboMas_FeedbackData(&robomas_dev_info_global[i]);
+        // if(roop_count == roop_count_max){
+        //   printf("M3508_pos *1000 = %d : %d\r\n", i, (int)(robomas_fb[i].position * 1000));
+        //   printf("M3508_str *1000 = %d : %d\r\n", i, (int)(&robomas_dev_info_global[i])->ctrl_param._req_value * 1000);
+        //   printf("M3508_tgt *1000 = %d : %d\r\n", i, (int)(&robomas_dev_info_global[i])->ctrl_param._target_value * 1000);
+        // }
+        // else if(roop_count > roop_count_max)roop_count = 0;
+    }
+    // roop_count++;
+#endif
+    osDelay(2);
   }
   /* USER CODE END StartRobomasTask */
 }
@@ -427,17 +433,21 @@ void StartRobomasTask(void const * argument)
 /* Point.x/y をそれぞれ Robstride スロット 0/1 の位置目標値として受け取る。 */
 static void point_callback(const void *msgin)
 {
-#if ROBSTRIDE_DEVICE_COUNT > 0U
   const geometry_msgs__msg__Point *point = msgin;
 
+#if ROBSTRIDE_DEVICE_COUNT > 0U
   robstride_target_value[0] = (float)point->x;
-#else
-  (void)msgin;
 #endif
 #if ROBSTRIDE_DEVICE_COUNT > 1U
   robstride_target_value[1] = (float)point->y;
 #endif
   robstride_first_flag = true;
+
+#if ROBOMAS_DEVICE_COUNT > 0U
+  RoboMas_SetTarget(&robomas_dev_info_global[0], (float)point->z);
+#endif
+
+  (void)msgin;
 }
 
 /* Robstride スロット 0 の位置・速度・電流を Point メッセージとして送信する。 */

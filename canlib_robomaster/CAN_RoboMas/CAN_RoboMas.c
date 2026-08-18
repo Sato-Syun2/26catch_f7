@@ -143,7 +143,7 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
 
 void RoboMas_WaitForConnect(RoboMas_DeviceInfo dev_info_array[], uint8_t size, DelayFunction_t f_delay) {
     uint8_t flag = 0;
-    printf("[RoboMas] Wait for Connection...\n");
+    printf("[RoboMas] Wait for Connection...\r\n");
     while (!flag) {
         flag = 1;
         for (uint8_t i = 0; i < size; i++) {
@@ -154,7 +154,7 @@ void RoboMas_WaitForConnect(RoboMas_DeviceInfo dev_info_array[], uint8_t size, D
         }
         f_delay(5);
     }
-    printf("[RoboMas] All Connected!\n");
+    printf("[RoboMas] All Connected!\r\n");
 }
 
 
