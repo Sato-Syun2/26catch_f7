@@ -2,16 +2,59 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Flash STM32",
-            "type": "shell",
-            "command": "/opt/st/stm32cubeclt_1.18.0/STM32CubeProgrammer/bin/STM32_Programmer_CLI",
+            "label": "Configure Debug",
+            "type": "process",
+            "command": "${env:LOCALAPPDATA}/stm32cube/bundles/cmake/4.3.1+st.1/bin/cmake.exe",
             "args": [
-                "-c", "port=SWD",
-                "-w", "${workspaceFolder}/build/Debug/26catch_f7.elf",
+                "--preset",
+                "Debug"
+            ],
+            "options": {
+                "env": {
+                    "PATH": "${env:LOCALAPPDATA}/stm32cube/bundles/ninja/1.13.2+st.1/bin;${env:LOCALAPPDATA}/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin;${env:PATH}"
+                }
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Build Debug",
+            "type": "process",
+            "command": "${env:LOCALAPPDATA}/stm32cube/bundles/cmake/4.3.1+st.1/bin/cmake.exe",
+            "dependsOn": "Configure Debug",
+            "dependsOrder": "sequence",
+            "args": [
+                "--build",
+                "--preset",
+                "Debug",
+                "--parallel"
+            ],
+            "options": {
+                "env": {
+                    "PATH": "${env:LOCALAPPDATA}/stm32cube/bundles/ninja/1.13.2+st.1/bin;${env:LOCALAPPDATA}/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin;${env:PATH}"
+                }
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "Flash STM32 (Debug)",
+            "type": "process",
+            "command": "${env:LOCALAPPDATA}/stm32cube/bundles/programmer/2.23.0/bin/STM32_Programmer_CLI.exe",
+            "dependsOn": "Build Debug",
+            "dependsOrder": "sequence",
+            "args": [
+                "-c",
+                "port=SWD",
+                "-w",
+                "${workspaceFolder}/build/Debug/26catch_f7.elf",
                 "-v",
                 "-rst"
             ],
-            "group": "build",
             "problemMatcher": []
         }
     ]

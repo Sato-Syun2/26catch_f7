@@ -1,0 +1,58 @@
+2026-8-18, 08:40:46.206 UTC
+[08:40:46.206 UTC] From client: initialize({"clientID":"vscode","clientName":"Visual Studio Code","adapterID":"stlinkgdbtarget","pathFormat":"path","linesStartAt1":true,"columnsStartAt1":true,"supportsVariableType":true,"supportsVariablePaging":true,"supportsRunInTerminalRequest":true,"locale":"ja","supportsProgressReporting":true,"supportsInvalidatedEvent":true,"supportsMemoryReferences":true,"supportsArgsCanBeInterpretedByShell":true,"supportsMemoryEvent":true,"supportsStartDebuggingRequest":true,"supportsANSIStyling":true})
+[08:40:46.206 UTC] To client: {"seq":0,"type":"response","request_seq":1,"command":"initialize","success":true,"body":{"supportsEvaluateForHovers":true,"supportsConfigurationDoneRequest":true,"supportsSetVariable":true,"supportsConditionalBreakpoints":true,"supportsHitConditionalBreakpoints":true,"supportsLogPoints":true,"supportsFunctionBreakpoints":true,"supportsDisassembleRequest":true,"supportsReadMemoryRequest":true,"supportsWriteMemoryRequest":true,"supportsSteppingGranularity":true}}
+[08:40:46.206 UTC] From client: launch({"type":"stlinkgdbtarget","request":"launch","name":"STM32Cube: Debug 26catch_f7","origin":"project","cwd":"C:\\Users\\ryose\\STM32Cube_ws\\26catch_f7","preBuild":"${command:st-stm32-ide-debug-launch.build}","program":"C:\\Users\\ryose\\STM32Cube_ws\\26catch_f7/build/Debug/26catch_f7.elf","runEntry":"main","deviceName":"STM32F767ZIT6","deviceCore":"Cortex-M7","gdb":"C:\\Users\\ryose\\AppData\\Local/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gdb.exe","imagesAndSymbols":[{"imageFileName":"C:\\Users\\ryose\\STM32Cube_ws\\26catch_f7/build/Debug/26catch_f7.elf","symbolFileName":"C:\\Users\\ryose\\STM32Cube_ws\\26catch_f7/build/Debug/26catch_f7.elf"}],"serverExe":"ST-LINK_gdbserver.exe","serverCwd":"C:\\Users\\ryose\\AppData\\Local/stm32cube/bundles/stlink-gdbserver/7.14.0+st.2/bin","serverCubeProgPath":"C:\\Users\\ryose\\AppData\\Local/stm32cube/bundles/programmer/2.23.0/bin","serverInterface":"SWD","serverVerify":true,"serverPort":"61234","serverPendingHaltTimeout":"2","serverIncrementalFlashing":false,"logFile":"C:\\Users\\ryose\\STM32Cube_ws\\26catch_f7/gdbClient_log.txt","__configurationTarget":6,"__sessionId":"55549037-f62f-4728-96be-6fd03ecd5906"})
+[08:40:46.206 UTC] From Debug Session: start Launch Sequence
+[08:40:46.881 UTC] From Debug Session: Step pre-build
+[08:40:46.881 UTC] From Debug Session: Step validate debug configuration
+[08:40:46.960 UTC] From Debug Session: Step ST-Link device check
+[08:40:46.960 UTC] From Debug Session: Step start STLink GDB Server
+[08:40:46.961 UTC] GDB Server command line executed: C:\Users\ryose\AppData\Local\stm32cube\bundles\stlink-gdbserver\7.14.0+st.2\bin\ST-LINK_gdbserver.exe -cp C:\Users\ryose\AppData\Local/stm32cube/bundles/programmer/2.23.0/bin -k -d -s -m 0 --pend-halt-timeout 2 -p 61234 -l 1
+[08:40:46.971 UTC] From Debug Session: Step check genuine ST device
+[08:40:46.971 UTC] From Debug Session: Step start RTOS Proxie(s)
+[08:40:46.971 UTC] From Debug Session: Step start gdb client debug
+[08:40:46.988 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"server","output":"\r\n\r\nSTMicroelectronics ST-LINK GDB server. Version 7.14.0\r\nCopyright (c) 2026, STMicroelectronics. All rights reserved.\r\n\r\nStarting server with the following options:\r\n        Persistent Mode            : Disabled\r\n        Logging Level              : 1\r\n        Listen Port Number         : 61234\r\n        Status Refresh Delay       : 15s\r\n        Verbose Mode               : Disabled\r\n        SWD Debug                  : Enabled\r\n        InitWhile                  : Enabled\r\n\r\n"}}
+[08:40:47.048 UTC] GDB notify async: thread-group-added,id="i1"
+[08:40:47.048 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"stdout","output":"GNU gdb (GNU Tools for STM32 14.3.rel1.20251027-0700) 15.2.90.20241229-git\n"}}
+[08:40:47.048 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"stdout","output":"Copyright (C) 2024 Free Software Foundation, Inc.\n"}}
+[08:40:47.048 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"stdout","output":"License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>\nThis is free software: you are free to change and redistribute it.\nThere is NO WARRANTY, to the extent permitted by law."}}
+[08:40:47.048 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"stdout","output":"\nType \"show copying\" and \"show warranty\" for details.\n"}}
+[08:40:47.048 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"stdout","output":"This GDB was configured as \"--host=x86_64-w64-mingw32 --target=arm-none-eabi\".\n"}}
+[08:40:47.048 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"stdout","output":"Type \"show configuration\" for configuration details.\n"}}
+[08:40:47.048 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"stdout","output":"For bug reporting instructions, please see:\n"}}
+[08:40:47.049 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"stdout","output":"<https://www.gnu.org/software/gdb/bugs/>.\n"}}
+[08:40:47.049 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"stdout","output":"Find the GDB manual and other documentation resources online at:\n    <"}}
+[08:40:47.049 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"stdout","output":"http://www.gnu.org/software/gdb/documentation/>.\n\n"}}
+[08:40:47.049 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"stdout","output":"For help, type \"help\".\n"}}
+[08:40:47.049 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"stdout","output":"Type \"apropos word\" to search for commands related to \"word\".\n"}}
+[08:40:47.049 UTC] GDB command: 0 -gdb-set non-stop off
+[08:40:47.063 UTC] GDB result: 0 done
+[08:40:47.063 UTC] GDB command: 1 -gdb-set mi-async on
+[08:40:47.078 UTC] GDB result: 1 done
+[08:40:47.079 UTC] From Debug Session: Step load program
+[08:40:47.079 UTC] GDB command: 2 -file-exec-and-symbols "C:\\Users\\ryose\\STM32Cube_ws\\26catch_f7/build/Debug/26catch_f7.elf"
+[08:40:47.104 UTC] GDB result: 2 done
+[08:40:47.105 UTC] From Debug Session: Step load symbols (STLink adapter)
+[08:40:47.105 UTC] GDB command: 3 -enable-pretty-printing
+[08:40:47.125 UTC] GDB result: 3 done
+[08:40:47.125 UTC] From Debug Session: Step load symbols C:\Users\ryose\STM32Cube_ws\26catch_f7/build/Debug/26catch_f7.elf (STLink adapter)
+[08:40:47.125 UTC] GDB command: 4 add-symbol-file "C:\\Users\\ryose\\STM32Cube_ws\\26catch_f7/build/Debug/26catch_f7.elf" 
+[08:40:47.141 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"log","output":"add-symbol-file \"C:\\\\Users\\\\ryose\\\\STM32Cube_ws\\\\26catch_f7/build/Debug/26catch_f7.elf\" \n"}}
+[08:40:47.141 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"stdout","output":"add symbol table from file \"C:\\Users\\ryose\\STM32Cube_ws\\26catch_f7/build/Debug/26catch_f7.elf\"\n"}}
+[08:40:47.141 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"stdout","output":"(y or n) [answered Y; input not from terminal]\n"}}
+[08:40:47.141 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"stdout","output":"Reading symbols from C:\\Users\\ryose\\STM32Cube_ws\\26catch_f7/build/Debug/26catch_f7.elf...\n"}}
+[08:40:47.141 UTC] GDB result: 4 done
+[08:40:47.141 UTC] From Debug Session: Step connect to target
+[08:40:47.142 UTC] GDB command: 5 -target-select remote localhost:61234
+[08:40:51.997 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"server","output":"Target USB comms error\r\n\r\nError in initializing ST-LINK device.\r\nReason: USB communication error. Please reconnect the ST-LINK USB cable and try again.\r\n"}}
+[08:40:52.007 UTC] To client: {"seq":0,"type":"event","event":"output","body":{"category":"server","output":"C:\\Users\\ryose\\AppData\\Local\\stm32cube\\bundles\\stlink-gdbserver\\7.14.0+st.2\\bin\\ST-LINK_gdbserver.exe has exited with code 3"}}
+[08:41:01.465 UTC] GDB result: 5 error,msg="could not connect (error 138): \212\371\202\311\220\332\221\261\202\263\202\352\202\304\202\242\202\351\203h\203\211\203C\203u\217\343\202\314\203f\203B\203\214\203N\203g\203\212\202\311\203h\203\211\203C\203u\202\360\220\332\221\261\202\265\202\346\202\244\202\306\202\265\202\334\202\265\202\275\201B"
+[08:41:01.466 UTC] [Error] Failed to decode cstring 'could not connect (error 138): ùÉÚ±³êÄ¢éhCuãÌfBNgÉhCuðÚ±µæ¤ÆµÜµ½B'. {}
+[08:41:01.466 UTC] From Debug Session: Step cleanup Gdb Client.
+[08:41:01.466 UTC] GDB command: 6 -gdb-exit
+[08:41:01.466 UTC] From Debug Session: Step cleanup GDB Server
+[08:41:01.467 UTC] GDB result: 6 exit
+[08:41:01.467 UTC] To client: {"seq":0,"type":"response","request_seq":2,"command":"launch","success":false,"message":"bound doStepConnectToTarget Failed: could not connect (error 138): ùÉÚ±³êÄ¢éhCuãÌfBNgÉhCuðÚ±µæ¤ÆµÜµ½B","body":{"error":{"id":1,"format":"bound doStepConnectToTarget Failed: could not connect (error 138): ùÉÚ±³êÄ¢éhCuãÌfBNgÉhCuðÚ±µæ¤ÆµÜµ½B","showUser":true}}}
+[08:41:01.477 UTC] From client: disconnect({"restart":false})
+[08:41:01.477 UTC] GDB command: 7 -gdb-exit
+[08:41:01.491 UTC] [Error] {"errno":-4047,"code":"EPIPE","syscall":"write"}

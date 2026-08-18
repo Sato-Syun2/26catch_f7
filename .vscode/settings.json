@@ -1,58 +1,15 @@
 {
-    "cmake.cmakePath": "cube-cmake",
-    "cmake.configureArgs": [
-        "-DCMAKE_COMMAND=cube-cmake"
-    ],
+    "cmake.cmakePath": "${env:LOCALAPPDATA}/stm32cube/bundles/cmake/4.3.1+st.1/bin/cmake.exe",
+    "cmake.useCMakePresets": "always",
     "cmake.preferredGenerators": [
         "Ninja"
     ],
-    "stm32cube-ide-clangd.path": "cube",
+    "cmake.environment": {
+        "PATH": "${env:LOCALAPPDATA}/stm32cube/bundles/ninja/1.13.2+st.1/bin;${env:LOCALAPPDATA}/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin;${env:PATH}"
+    },
+    "stm32cube-ide-clangd.path": "${env:LOCALAPPDATA}/stm32cube/bundles/st-arm-clangd/21.1.0+st.2/bin/starm-clangd.exe",
     "stm32cube-ide-clangd.arguments": [
-        "starm-clangd",
-        "--query-driver=${env:CUBE_BUNDLE_PATH}/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gcc*",
-        "--query-driver=${env:CUBE_BUNDLE_PATH}/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-g++*"
-    ],
-    "ROS2.distro": "humble",
-    "python.autoComplete.extraPaths": [
-        "/home/ss/26catch/26catch_ws/install/motor_tuning/lib/python3.10/site-packages",
-        "/home/ss/ros2_ws/install/controller_test/local/lib/python3.10/dist-packages",
-        "/home/ss/ros2_ws/install/test_msgs/local/lib/python3.10/dist-packages",
-        "/home/ss/ros2_ws/install/ros2_socketcan_msgs/local/lib/python3.10/dist-packages",
-        "/home/ss/ros2_ws/install/more_interfaces/local/lib/python3.10/dist-packages",
-        "/home/ss/ros2_ws/install/custom_test_msgs/local/lib/python3.10/dist-packages",
-        "/home/ss/ros2_ws/install/cpp_topic_pubsub/local/lib/python3.10/dist-packages",
-        "/home/ss/ros2_ws/install/cpp_server_client/local/lib/python3.10/dist-packages",
-        "/home/ss/kachaka_ws/install/kachaka_interfaces/local/lib/python3.10/dist-packages",
-        "/home/ss/catchrobo2025/home/install/kondo_drivers/local/lib/python3.10/dist-packages",
-        "/home/ss/catchrobo2025/home/install/udp_msgs/local/lib/python3.10/dist-packages",
-        "/home/ss/uros_ws/install/micro_ros_msgs/local/lib/python3.10/dist-packages",
-        "/home/ss/catchrobo2025/catch25_ws/install/kondo_drivers/local/lib/python3.10/dist-packages",
-        "/home/ss/catchrobo2025/catch25_ws/install/udp_msgs/local/lib/python3.10/dist-packages",
-        "/home/ss/catchrobo2025/catch25_ws/install/scs_servo_cpp/local/lib/python3.10/dist-packages",
-        "/home/ss/catchrobo2025/catch25_ws/install/field_sim_test_description/lib/python3.10/site-packages",
-        "/home/ss/catchrobo2025/catch25_ws/install/arm_for_sim_description/lib/python3.10/site-packages",
-        "/opt/ros/humble/lib/python3.10/site-packages",
-        "/opt/ros/humble/local/lib/python3.10/dist-packages"
-    ],
-    "python.analysis.extraPaths": [
-        "/home/ss/26catch/26catch_ws/install/motor_tuning/lib/python3.10/site-packages",
-        "/home/ss/ros2_ws/install/controller_test/local/lib/python3.10/dist-packages",
-        "/home/ss/ros2_ws/install/test_msgs/local/lib/python3.10/dist-packages",
-        "/home/ss/ros2_ws/install/ros2_socketcan_msgs/local/lib/python3.10/dist-packages",
-        "/home/ss/ros2_ws/install/more_interfaces/local/lib/python3.10/dist-packages",
-        "/home/ss/ros2_ws/install/custom_test_msgs/local/lib/python3.10/dist-packages",
-        "/home/ss/ros2_ws/install/cpp_topic_pubsub/local/lib/python3.10/dist-packages",
-        "/home/ss/ros2_ws/install/cpp_server_client/local/lib/python3.10/dist-packages",
-        "/home/ss/kachaka_ws/install/kachaka_interfaces/local/lib/python3.10/dist-packages",
-        "/home/ss/catchrobo2025/home/install/kondo_drivers/local/lib/python3.10/dist-packages",
-        "/home/ss/catchrobo2025/home/install/udp_msgs/local/lib/python3.10/dist-packages",
-        "/home/ss/uros_ws/install/micro_ros_msgs/local/lib/python3.10/dist-packages",
-        "/home/ss/catchrobo2025/catch25_ws/install/kondo_drivers/local/lib/python3.10/dist-packages",
-        "/home/ss/catchrobo2025/catch25_ws/install/udp_msgs/local/lib/python3.10/dist-packages",
-        "/home/ss/catchrobo2025/catch25_ws/install/scs_servo_cpp/local/lib/python3.10/dist-packages",
-        "/home/ss/catchrobo2025/catch25_ws/install/field_sim_test_description/lib/python3.10/site-packages",
-        "/home/ss/catchrobo2025/catch25_ws/install/arm_for_sim_description/lib/python3.10/site-packages",
-        "/opt/ros/humble/lib/python3.10/site-packages",
-        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+        "--query-driver=${env:LOCALAPPDATA}/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gcc.exe",
+        "--query-driver=${env:LOCALAPPDATA}/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-g++.exe"
     ]
 }
