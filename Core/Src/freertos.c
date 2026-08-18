@@ -30,6 +30,7 @@
 #include <rcl/error_handling.h>
 #include <rclc/rclc.h>
 #include <rclc/executor.h>
+#include <stdio.h>
 #include <uxr/client/transport.h>
 #include <rmw_microxrcedds_c/config.h>
 #include <rmw_microros/rmw_microros.h>
@@ -101,7 +102,7 @@ void *microros_zero_allocate(size_t number_of_elements, size_t size_of_element,
 
 /* USER CODE END Variables */
 osThreadId MROSTaskHandle;
-uint32_t defaultTaskBuffer[ 1024 ];
+uint32_t defaultTaskBuffer[ 4096 ];
 osStaticThreadDef_t defaultTaskControlBlock;
 osThreadId RobstrideTaskHandle;
 uint32_t RobstrideTaskBuffer[ 256 ];
@@ -186,7 +187,7 @@ void MX_FREERTOS_Init(void) {
 
   /* Create the thread(s) */
   /* definition and creation of MROSTask */
-  osThreadStaticDef(MROSTask, StartMROSTask, osPriorityNormal, 0, 1024, defaultTaskBuffer, &defaultTaskControlBlock);
+  osThreadStaticDef(MROSTask, StartMROSTask, osPriorityNormal, 0, 4096, defaultTaskBuffer, &defaultTaskControlBlock);
   MROSTaskHandle = osThreadCreate(osThread(MROSTask), NULL);
 
   /* definition and creation of RobstrideTask */
@@ -253,9 +254,10 @@ void StartMROSTask(void const * argument)
 //	  		printf("tes\n\r");
 	  		rmw_ret_t ping_result = rmw_uros_ping_agent(1000, 5);  // ping Agent
 //	  		printf("test\n\r");
-	  		if(ping_result == RMW_RET_OK){
+	    if (ping_result == RMW_RET_OK) {
 	  			break;
 	  		}
+	    osDelay(100);
 	  	}
 	  	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);  // LD3 (RED) -> OFF
 
@@ -273,9 +275,9 @@ void StartMROSTask(void const * argument)
 		// micro-ROS app
 		setvbuf(stdout, NULL, _IOFBF, BUFSIZ);
 		rcl_init_options_t init_options = rcl_get_zero_initialized_init_options();
-		rclc_support_t support;
+		rclc_support_t support = {0};
 		rcl_allocator_t allocator = rcl_get_default_allocator();
-		rcl_node_t node;
+		rcl_node_t node = rcl_get_zero_initialized_node();
 		rcl_node_options_t node_ops = rcl_node_get_default_options();
 
 		// node setting
@@ -285,42 +287,67 @@ void StartMROSTask(void const * argument)
 		RCCHECK(rclc_node_init_with_options(&node, "f7_mros_node", "", &support, &node_ops));
 
 		// create executor
-		rclc_executor_t executor;
+		rclc_executor_t executor = rclc_executor_get_zero_initialized_executor();
 		unsigned int num_handlers = 3;// TODO : 忘れずに変更
-       RCCHECK(rclc_executor_init(&executor, &support.context, num_handlers, &allocator));
+    RCCHECK(rclc_executor_init(&executor, &support.context, num_handlers, &allocator));
 
-       const char* point_sub_name = "mros_point_input";
-       rmw_qos_profile_t point_sub_options = rmw_qos_profile_default;
-       point_sub_options.reliability = RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT;
-       RCCHECK(rclc_subscription_init(&point_subscriber, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Point), point_sub_name, &point_sub_options));
-       RCCHECK(rclc_executor_add_subscription(&executor, &point_subscriber, &point_msg, &point_callback, ON_NEW_DATA));
+    const char* point_sub_name = "mros_point_input";
+    rmw_qos_profile_t point_sub_options = rmw_qos_profile_default;
+    point_sub_options.reliability = RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT;
+    RCCHECK(rclc_subscription_init(&point_subscriber, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Point), point_sub_name, &point_sub_options));
+    RCCHECK(rclc_executor_add_subscription(&executor, &point_subscriber, &point_msg, &point_callback, ON_NEW_DATA));
 
-       const char* robstride_pub_name = "robstride_feedback_pub";
-       RCCHECK(rclc_publisher_init_default(&robstride_fb_publisher, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Point), robstride_pub_name));
-       rcl_timer_t feedback_timer;
-       RCCHECK(rclc_timer_init_default(&feedback_timer, &support, RCL_MS_TO_NS(10), feedback_timer_callback));
-       RCCHECK(rclc_executor_add_timer(&executor, &feedback_timer));
+    const char* robstride_pub_name = "robstride_feedback_pub";
+    RCCHECK(rclc_publisher_init_default(&robstride_fb_publisher, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(geometry_msgs, msg, Point), robstride_pub_name));
+    rcl_timer_t feedback_timer = rcl_get_zero_initialized_timer();
+    RCCHECK(rclc_timer_init_default(&feedback_timer, &support, RCL_MS_TO_NS(10), feedback_timer_callback));
+    RCCHECK(rclc_executor_add_timer(&executor, &feedback_timer));
 
-		rcl_subscription_t subscriber;
+		rcl_subscription_t subscriber = rcl_get_zero_initialized_subscription();
 		const char* sub_name = "mros_input_uint8";
-		std_msgs__msg__UInt8 msg;
+		std_msgs__msg__UInt8 msg = {0};
 		rmw_qos_profile_t sub_options = rmw_qos_profile_default;
 		sub_options.reliability = RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT;
 		RCCHECK(rclc_subscription_init(&subscriber, &node, ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, UInt8), sub_name, &sub_options));
 		RCCHECK(rclc_executor_add_subscription(&executor, &subscriber, &msg, &subscription_callback, ON_NEW_DATA));
 
-        // TODO: service
+    // TODO: service
 
-       for (;;) {
-         rclc_executor_spin_some(&executor, RCL_MS_TO_NS(9));  // 処理は1ms以内
-         osDelay(1);  // FreeRTOSの1msスケジューリング
-        }
+    /* spin() は切断時に戻らないため、spin_some() の戻り値で切断を監視する。 */
+    // for (;;) {
+    //   // rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
 
-       RCCHECK(rclc_executor_fini(&executor));
-       RCCHECK(rcl_subscription_fini(&point_subscriber, &node));
-       RCCHECK(rcl_subscription_fini(&subscriber, &node));
-       RCCHECK(rcl_publisher_fini(&robstride_fb_publisher, &node));
-       RCCHECK(rcl_node_fini(&node));
+    //   rcl_ret_t spin_result = rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
+    //   if (spin_result != RCL_RET_OK && spin_result != RCL_RET_TIMEOUT) {
+    //     printf("micro-ROS executor stopped: %d\r\n", (int)spin_result);
+    //     rcl_reset_error();
+    //     break;
+    //   }
+    //   osDelay(1);
+    //   HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14); //for debug
+    // }
+    for (;;) {
+      rcl_ret_t spin_result = rclc_executor_spin_some(&executor, RCL_MS_TO_NS(9));
+      if (spin_result != RCL_RET_OK && spin_result != RCL_RET_TIMEOUT) {
+        printf("micro-ROS executor stopped: %d\r\n", (int)spin_result);
+        rcl_reset_error();
+        break;
+      }
+      osDelay(1);  // FreeRTOSの1msスケジューリング
+      printf("micro-ROS connected.\r\n");
+    }
+
+    printf("micro-ROS disconnected.\r\n");
+    RCCHECK(rclc_executor_fini(&executor));
+    RCCHECK(rcl_timer_fini(&feedback_timer));
+    RCCHECK(rcl_subscription_fini(&point_subscriber, &node));
+    RCCHECK(rcl_subscription_fini(&subscriber, &node));
+    RCCHECK(rcl_publisher_fini(&robstride_fb_publisher, &node));
+    RCCHECK(rcl_node_fini(&node));
+    RCCHECK(rclc_support_fini(&support));
+    RCCHECK(rcl_init_options_fini(&init_options));
+    cubemx_transport_close(NULL);
+    osDelay(1000);
   }
   /* USER CODE END StartMROSTask */
 }
