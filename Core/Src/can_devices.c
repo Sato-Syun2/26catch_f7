@@ -1,5 +1,7 @@
 #include "can_devices.h"
 
+#include <math.h>
+
 #include "CAN_Robstride_Def.h"
 #include "robstride_constant.h"
 #include "can.h"
@@ -8,6 +10,35 @@
 static void motor_init_delay(uint32_t delay_ms)
 {
     HAL_Delay(delay_ms);
+}
+
+static float normalize_robstride_startup_position(float position)
+{
+    float normalized = fmodf(position + 180.0f, 360.0f);
+
+    if (normalized < 0.0f) {
+        normalized += 360.0f;
+    }
+
+    return normalized - 180.0f;
+}
+
+static bool initialize_robstride_position(Robstride_DeviceInfo *device,
+                                           float *normalized_position)
+{
+    const Robstride_FeedbackData feedback = Read_Robstride_FeedbackData(device);
+
+    if ((feedback.get_flag == 0U) || !isfinite(feedback.position)) {
+        return false;
+    }
+
+    *normalized_position = normalize_robstride_startup_position(feedback.position);
+
+    /* 起動時だけ現在値を正規化し、周回差は位置オフセットとして保持する。 */
+    device->ctrl_param.offset_pos += *normalized_position - feedback.position;
+    Robstride_fb_init(device);
+
+    return true;
 }
 
 /*
@@ -166,7 +197,6 @@ static void configure_robstride_common(Robstride_DeviceInfo *device)
     Robstride_Ctrl_StructTypedef *ctrl = &device->ctrl_param;
 
     ctrl->use_internal_offset = ROBSTRIDE_USE_OFFSET_POS_INTERNAL;
-    ctrl->offset_pos = 0.0f;
     ctrl->ctrl_type = ROBSTRIDE_CTRL_POS;
     ctrl->velocity_limit = ROBSTRIDE_VELOCITY_LIMIT_ENABLE;
     ctrl->current_limit = ROBSTRIDE_CURRENT_LIMIT_ENABLE;
@@ -184,6 +214,7 @@ static void configure_robstride_0(void)
     Robstride_Ctrl_StructTypedef *ctrl = &robstride_dev_info_global[0].ctrl_param;
     configure_robstride_common(&robstride_dev_info_global[0]);
 
+    ctrl->offset_pos = 0.0f;
     ctrl->pid.kp_pos = 7.0f;
     ctrl->pid.kp_vel = 6.0f;
     ctrl->pid.ki_vel = 0.02f;
@@ -199,6 +230,7 @@ static void configure_robstride_1(void)
     Robstride_Ctrl_StructTypedef *ctrl = &robstride_dev_info_global[1].ctrl_param;
     configure_robstride_common(&robstride_dev_info_global[1]);
 
+    ctrl->offset_pos = 8.0f;
     ctrl->pid.kp_pos = 7.0f;
     ctrl->pid.kp_vel = 6.0f;
     ctrl->pid.ki_vel = 0.02f;
@@ -256,6 +288,7 @@ void CanDevices_Init(CAN_HandleTypeDef *robomas_can,
                              motor_init_delay);
     for (uint8_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
         Robstride_DeviceInfo *const device = &robstride_dev_info_global[i];
+        float initial_position;
 
         Robstride_ControlDisable(device, motor_init_delay);
         Robstride_SetPIDParams(device, motor_init_delay);
@@ -271,6 +304,14 @@ void CanDevices_Init(CAN_HandleTypeDef *robomas_can,
         motor_init_delay(10U);
         Robstride_SetTorqueLimit(device);
         motor_init_delay(10U);
+
+        if (!initialize_robstride_position(device, &initial_position)) {
+            continue;
+        }
+
+        /* micro-ROSの指令値と同じ度数法で、起動時の現在値を目標にする。 */
+        robstride_target_value[i] = initial_position;
+        Robstride_SetTarget(device, initial_position);
         Robstride_SetControl(device, device->ctrl_param.ctrl_type, motor_init_delay);
     }
 }
