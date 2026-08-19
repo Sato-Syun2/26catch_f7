@@ -4,14 +4,8 @@
 
 #include "CAN_Robstride_Def.h"
 #include "robstride_constant.h"
-#include "can.h"
 
 /* FreeRTOS 開始前の初期化処理で使用する待機関数。 */
-static void motor_init_delay(uint32_t delay_ms)
-{
-    HAL_Delay(delay_ms);
-}
-
 static float normalize_robstride_startup_position(float position)
 {
     float normalized = fmodf(position + 180.0f, 360.0f);
@@ -92,16 +86,18 @@ Robstride_DeviceInfo robstride_dev_info_global[ROBSTRIDE_DEVICE_STORAGE_COUNT] =
  */
 RoboMas_DeviceInfo robomas_dev_info_global[ROBOMAS_DEVICE_STORAGE_COUNT] = {
 #if ROBOMAS_C610_COUNT > 0U
-    {.device_type = ROBOMASTER_C610, .device_id = 1U},
+    [0] = {.device_type = ROBOMASTER_C610, .device_id = ROBOMAS_C610_DEVICE_0_ID},
 #endif
 #if ROBOMAS_C610_COUNT > 1U
-    {.device_type = ROBOMASTER_C610, .device_id = 2U},
+    [1] = {.device_type = ROBOMASTER_C610, .device_id = ROBOMAS_C610_DEVICE_1_ID},
 #endif
 #if ROBOMAS_C620_COUNT > 0U
-    {.device_type = ROBOMASTER_C620, .device_id = 4U},
+    [ROBOMAS_C610_COUNT] = {.device_type = ROBOMASTER_C620,
+                            .device_id = ROBOMAS_C620_DEVICE_0_ID},
 #endif
 #if ROBOMAS_C620_COUNT > 1U
-    {.device_type = ROBOMASTER_C620, .device_id = 3U},
+    [ROBOMAS_C610_COUNT + 1U] = {.device_type = ROBOMASTER_C620,
+                                 .device_id = ROBOMAS_C620_DEVICE_1_ID},
 #endif
 };
 
@@ -109,6 +105,7 @@ RoboMas_DeviceInfo robomas_dev_info_global[ROBOMAS_DEVICE_STORAGE_COUNT] = {
  * RoboMaster 共通設定。
  * 各デバイス固有の PID、回転方向、減速比は下の個別関数で上書きする。
  */
+#if ROBOMAS_DEVICE_COUNT > 0U
 static void configure_robomas_common(RoboMas_DeviceInfo *device)
 {
     RoboMas_Ctrl_StructTypedef *ctrl = &device->ctrl_param;
@@ -158,8 +155,9 @@ static void configure_c610_2(void)
 /* C620 #1（CAN ID 3）の設定。 */
 static void configure_c620_1(void)
 {
-    RoboMas_Ctrl_StructTypedef *ctrl = &robomas_dev_info_global[0].ctrl_param;
-    configure_robomas_common(&robomas_dev_info_global[0]);
+    RoboMas_Ctrl_StructTypedef *ctrl =
+        &robomas_dev_info_global[ROBOMAS_C610_COUNT].ctrl_param;
+    configure_robomas_common(&robomas_dev_info_global[ROBOMAS_C610_COUNT]);
 
     ctrl->rotation = ROBOMAS_ROT_ACW;
     ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f;
@@ -176,8 +174,9 @@ static void configure_c620_1(void)
 /* C620 #2（CAN ID 4）の設定。 */
 static void configure_c620_2(void)
 {
-    RoboMas_Ctrl_StructTypedef *ctrl = &robomas_dev_info_global[3].ctrl_param;
-    configure_robomas_common(&robomas_dev_info_global[3]);
+    RoboMas_Ctrl_StructTypedef *ctrl =
+        &robomas_dev_info_global[ROBOMAS_C610_COUNT + 1U].ctrl_param;
+    configure_robomas_common(&robomas_dev_info_global[ROBOMAS_C610_COUNT + 1U]);
 
     ctrl->rotation = ROBOMAS_ROT_ACW;
     ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f;
@@ -191,7 +190,8 @@ static void configure_c620_2(void)
     ctrl->pid_pos.kff = 0.0f;
 }
 
-/* Robstride 共通設定。個別 PID は下の関数で設定する。 */
+#endif
+
 static void configure_robstride_common(Robstride_DeviceInfo *device)
 {
     Robstride_Ctrl_StructTypedef *ctrl = &device->ctrl_param;
@@ -241,7 +241,8 @@ static void configure_robstride_1(void)
 }
 
 void CanDevices_Init(CAN_HandleTypeDef *robomas_can,
-                     CAN_HandleTypeDef *robstride_can)
+                     CAN_HandleTypeDef *robstride_can,
+                     DelayFunction_t delay_function)
 {
     /* CAN2 上の RoboMaster を初期化してから、個別設定を反映する。 */
     Init_RoboMas_CAN_System(robomas_can);
@@ -262,7 +263,7 @@ void CanDevices_Init(CAN_HandleTypeDef *robomas_can,
     /* 接続を確認してから、RoboMaster の制御を有効化する。 */
     RoboMas_WaitForConnect(robomas_dev_info_global,
                            ROBOMAS_DEVICE_COUNT,
-                           motor_init_delay);
+                           delay_function);
     for (uint8_t i = 0U; i < ROBOMAS_DEVICE_COUNT; ++i) {
         RoboMas_SetTarget(&robomas_dev_info_global[i], 0.0f);
         RoboMas_ControlEnable(&robomas_dev_info_global[i]);
@@ -285,25 +286,25 @@ void CanDevices_Init(CAN_HandleTypeDef *robomas_can,
     /* 接続確認後、停止状態で全パラメータを反映してから制御を有効化する。 */
     Robstride_WaitForConnect(robstride_dev_info_global,
                              ROBSTRIDE_DEVICE_COUNT,
-                             motor_init_delay);
+                             delay_function);
     for (uint8_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
         Robstride_DeviceInfo *const device = &robstride_dev_info_global[i];
         float initial_position;
 
-        Robstride_ControlDisable(device, motor_init_delay);
-        Robstride_SetPIDParams(device, motor_init_delay);
+        Robstride_ControlDisable(device, delay_function);
+        Robstride_SetPIDParams(device, delay_function);
         /*
          * パラメータ読出し応答が来ない個体でも、ここで起動を止めない。
          * 設定値は個別設定済みかつ範囲内なので、書込みのみで反映する。
          */
         Robstride_WriteFloatData(device, ADDR_LIMIT_SPEED,
                                  device->ctrl_param.velocity_limit_size);
-        motor_init_delay(10U);
+        delay_function(10U);
         Robstride_WriteFloatData(device, ADDR_LIMIT_CURRENT,
                                  device->ctrl_param.current_limit_size);
-        motor_init_delay(10U);
+        delay_function(10U);
         Robstride_SetTorqueLimit(device);
-        motor_init_delay(10U);
+        delay_function(10U);
 
         if (!initialize_robstride_position(device, &initial_position)) {
             continue;
@@ -312,6 +313,6 @@ void CanDevices_Init(CAN_HandleTypeDef *robomas_can,
         /* micro-ROSの指令値と同じ度数法で、起動時の現在値を目標にする。 */
         robstride_target_value[i] = initial_position;
         Robstride_SetTarget(device, initial_position);
-        Robstride_SetControl(device, device->ctrl_param.ctrl_type, motor_init_delay);
+        Robstride_SetControl(device, device->ctrl_param.ctrl_type, delay_function);
     }
 }

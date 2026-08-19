@@ -20,6 +20,11 @@
 #define ROBSTRIDE_DEVICE_1_ID   2U
 
 /* C は長さ 0 の配列を標準では許可しないため、未接続時も最小領域を確保する。 */
+#define ROBOMAS_C610_DEVICE_0_ID 1U
+#define ROBOMAS_C610_DEVICE_1_ID 2U
+#define ROBOMAS_C620_DEVICE_0_ID 4U
+#define ROBOMAS_C620_DEVICE_1_ID 3U
+
 #define ROBSTRIDE_DEVICE_STORAGE_COUNT \
   ((ROBSTRIDE_DEVICE_COUNT > 0U) ? ROBSTRIDE_DEVICE_COUNT : 1U)
 #define ROBOMAS_DEVICE_STORAGE_COUNT \
@@ -32,6 +37,7 @@ extern Robstride_FeedbackData feedback_data_raw[ROBSTRIDE_DEVICE_STORAGE_COUNT];
 extern float feedback_offset[ROBSTRIDE_DEVICE_STORAGE_COUNT];
 
 void CanDevices_Init(CAN_HandleTypeDef *robomas_can,
-                     CAN_HandleTypeDef *robstride_can);
+                     CAN_HandleTypeDef *robstride_can,
+                     DelayFunction_t delay_function);
 
 #endif /* CAN_DEVICES_H */
