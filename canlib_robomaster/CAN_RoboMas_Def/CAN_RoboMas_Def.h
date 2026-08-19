@@ -94,7 +94,7 @@ typedef struct RoboMas_FeedbackData {
 
 
 typedef struct robomas_feedback_data_raw {
-    uint8_t _get_counter; // dataを受け取った回数 (offset計算用, max:128)
+    volatile uint8_t _get_counter; // dataを受け取った回数 (offset計算用, max:128)
     int64_t _rot_num;  //回転数
     uint16_t pos;
     uint16_t _internal_offset_pos;  // encoderの初期位置自体のoffset

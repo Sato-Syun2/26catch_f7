@@ -13,6 +13,7 @@
 
 
 #define ROBOMAS_CAN_TXBUFFER_SIZE    (512)
+#define ROBOMAS_FEEDBACK_READY_COUNT (50U)
 
 typedef struct {
     uint32_t StdId; // 18bit
@@ -122,7 +123,7 @@ void _set_fb_data_raw(const uint8_t rxData[], uint8_t device_id) {
         fb_data_row->_get_counter = 128;  // overflow対策
     }
 
-    if (fb_data_row->_get_counter < 50) {  // Encoderの初期位置を取得
+    if (fb_data_row->_get_counter < ROBOMAS_FEEDBACK_READY_COUNT) {  // Encoderの初期位置を取得
         fb_data_row->_internal_offset_pos = (uint16_t) (rxData[0] << 8 | rxData[1]);
         fb_data_row->pos_pre = (uint16_t) (rxData[0] << 8 | rxData[1]);
         fb_data_row->pos = (uint16_t) (rxData[0] << 8 | rxData[1]);
@@ -185,6 +186,18 @@ void RoboMas_WhenCANRxFifo1MsgPending(CAN_HandleTypeDef *phcan) {
 
 void Init_RoboMas_CAN_System(CAN_HandleTypeDef *phcan) {  //CAN初期化
     _robomas_phcan_global = phcan;
+
+    /* 受信通知を有効化する前に、接続判定用の状態を初期化する。 */
+    for (uint8_t i = 0; i < 9; i++) {  // init fb_data_raw
+        _robomas_feedback_data_raw_global[i].pos = 0;
+        _robomas_feedback_data_raw_global[i].pos_pre = 0;
+        _robomas_feedback_data_raw_global[i]._rot_num = 0;
+        _robomas_feedback_data_raw_global[i].vel = 0;
+        _robomas_feedback_data_raw_global[i].cur = 0;
+        _robomas_feedback_data_raw_global[i]._get_counter = 0;
+        _robomas_feedback_data_raw_global[i]._internal_offset_pos = 0;
+    }
+
     CAN_FilterTypeDef sFilterConfig;
 
     //フィルタバンク設定
@@ -318,15 +331,6 @@ void Init_RoboMas_CAN_System(CAN_HandleTypeDef *phcan) {  //CAN初期化
         Error_Handler();
     }
 
-    for (uint8_t i = 0; i < 9; i++) {  // init fb_data_raw
-        _robomas_feedback_data_raw_global[i].pos = 0;
-        _robomas_feedback_data_raw_global[i].pos_pre = 0;
-        _robomas_feedback_data_raw_global[i]._rot_num = 0;
-        _robomas_feedback_data_raw_global[i].vel = 0;
-        _robomas_feedback_data_raw_global[i].cur = 0;
-        _robomas_feedback_data_raw_global[i]._get_counter = 0;
-        _robomas_feedback_data_raw_global[i]._internal_offset_pos = 0;
-    }
 }
 
 
@@ -357,7 +361,7 @@ RoboMas_FeedbackData Get_RoboMas_FeedbackData(RoboMas_DeviceInfo *device_info) {
     	    fb_data.current = 0.0f;
     	    break;
     }
-    fb_data.get_flag = (fb_data_row->_get_counter > 50);
+    fb_data.get_flag = (fb_data_row->_get_counter >= ROBOMAS_FEEDBACK_READY_COUNT);
 
     fb_data.velocity *= device_info->ctrl_param.quant_per_rot;
     fb_data.position *= device_info->ctrl_param.quant_per_rot;
