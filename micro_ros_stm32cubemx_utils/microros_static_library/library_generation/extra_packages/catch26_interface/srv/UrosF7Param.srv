@@ -1,0 +1,6 @@
+string<=16 target
+string<=16 command
+float32 data
+---
+bool success
+string<=32 message

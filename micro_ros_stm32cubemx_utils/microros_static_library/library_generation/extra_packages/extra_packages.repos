@@ -3,3 +3,7 @@ repositories:
     type: git
     url: https://github.com/ros-controls/control_msgs
     version: master
+
+  catch26_interface:
+    type: local
+    path: extra_packages/catch26_interface

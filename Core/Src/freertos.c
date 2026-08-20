@@ -310,19 +310,6 @@ void StartMROSTask(void const * argument)
 
     // TODO: service
 
-    /* spin() は切断時に戻らないため、spin_some() の戻り値で切断を監視する。 */
-    // for (;;) {
-    //   // rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
-
-    //   rcl_ret_t spin_result = rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
-    //   if (spin_result != RCL_RET_OK && spin_result != RCL_RET_TIMEOUT) {
-    //     printf("micro-ROS executor stopped: %d\r\n", (int)spin_result);
-    //     rcl_reset_error();
-    //     break;
-    //   }
-    //   osDelay(1);
-    //   HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14); //for debug
-    // }
     for (;;) {
       rcl_ret_t spin_result = rclc_executor_spin_some(&executor, RCL_MS_TO_NS(9));
       if (spin_result != RCL_RET_OK && spin_result != RCL_RET_TIMEOUT) {
@@ -361,20 +348,6 @@ void StartRobstrideTask(void const * argument)
   /* Infinite loop */
   for(;;)
   {
-//	    		  Robstride_ControlEnable(&robstride_dev_info_global[i]);
-//	    		  HAL_Delay(10);
-//	    	  }
-//
-//	    	  Robstride_ChangeControl(&robstride_dev_info_global[0], ROBSTRIDE_CTRL_POS);
-//	    	  HAL_Delay(10);
-//
-//	    	    float current_target;
-//	    	    osMutexAcquire(robstridePosHandle, osWaitForever);
-//	    	    current_target = robstride_target_value;
-//	    	    osMutexRelease(robstridePosHandle);
-//
-//	    	  Robstride_SetTarget(&robstride_dev_info_global[0], current_target);
-//	    	  printf("set target OK\n\r");
 	  if(robstride_first_flag == true){
 		   for (uint8_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
 		     Robstride_SetTarget(&robstride_dev_info_global[i], robstride_target_value[i]);
@@ -401,8 +374,6 @@ void StartRobstrideTask(void const * argument)
 void StartRobomasTask(void const * argument)
 {
   /* USER CODE BEGIN StartRobomasTask */
-  // static int16_t roop_count = 0;
-  // static int16_t roop_count_max = 100;
   /* Infinite loop */
   for(;;)
   {
@@ -410,14 +381,7 @@ void StartRobomasTask(void const * argument)
 	  RoboMas_SendRequest(robomas_dev_info_global, num_of_robomas, 500.0f, &hcan2);//制御する
 	  for(int i=0; i<num_of_robomas; i++){
 	      robomas_fb[i]=Get_RoboMas_FeedbackData(&robomas_dev_info_global[i]);
-        // if(roop_count == roop_count_max){
-        //   printf("M3508_pos *1000 = %d : %d\r\n", i, (int)(robomas_fb[i].position * 1000));
-        //   printf("M3508_str *1000 = %d : %d\r\n", i, (int)(&robomas_dev_info_global[i])->ctrl_param._req_value * 1000);
-        //   printf("M3508_tgt *1000 = %d : %d\r\n", i, (int)(&robomas_dev_info_global[i])->ctrl_param._target_value * 1000);
-        // }
-        // else if(roop_count > roop_count_max)roop_count = 0;
     }
-    // roop_count++;
 #endif
     osDelay(2);
   }
