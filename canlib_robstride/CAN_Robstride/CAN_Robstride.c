@@ -96,7 +96,7 @@ void Robstride_WaitForConnect(Robstride_DeviceInfo dev_info_array[], const uint8
         f_delay(100);
     }
 
-    printf("[Robstride] All Connected!\n");
+    printf("[Robstride] All Connected!\r\n");
     f_delay(500);
 }
 

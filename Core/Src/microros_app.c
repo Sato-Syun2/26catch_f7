@@ -404,6 +404,7 @@ static void feedback_timer_callback(rcl_timer_t *timer, int64_t last_call_time)
   (void)rosidl_runtime_c__String__assign(
       &feedback_msg.message, all_connected ? "ok" : "motor disconnected");
 
+  HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
   rcl_ret_t ret = rcl_publish(&feedback_publisher, &feedback_msg, NULL);
   if (ret != RCL_RET_OK) {
     printf("micro-ROS feedback publish error: %d\r\n", (int)ret);
@@ -476,6 +477,7 @@ void MicroRosTask_Run(void)
       HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_14);
       osDelay(100U);
     }
+    printf("micro-ROS agent connected\r\n");
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_RESET);
 
     rcl_allocator_t freeRTOS_allocator = rcutils_get_zero_initialized_allocator();
@@ -523,21 +525,25 @@ void MicroRosTask_Run(void)
     RCCHECK(rclc_executor_add_subscription(
         &executor, &command_subscriber, &command_msg, &command_callback, ON_NEW_DATA));
 
-    RCCHECK(rclc_publisher_init_default(
+    rmw_qos_profile_t feedback_qos = rmw_qos_profile_default;
+    feedback_qos.reliability = RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT;
+    RCCHECK(rclc_publisher_init(
         &feedback_publisher,
         &node,
         ROSIDL_GET_MSG_TYPE_SUPPORT(catch26_interface, msg, UrosF7Feedback),
-        MICROROS_FEEDBACK_TOPIC));
+        MICROROS_FEEDBACK_TOPIC,
+        &feedback_qos));
     RCCHECK(rclc_timer_init_default(
         &feedback_timer,
         &support,
         RCL_MS_TO_NS(MICROROS_FEEDBACK_PERIOD_MS),
         &feedback_timer_callback));
     RCCHECK(rclc_executor_add_timer(&executor, &feedback_timer));
+    printf("micro-ROS initialized\r\n");
 
     for (;;) {
       const rcl_ret_t spin_result =
-          rclc_executor_spin_some(&executor, RCL_MS_TO_NS(9));
+          rclc_executor_spin_some(&executor, RCL_MS_TO_NS(1));
       if (spin_result != RCL_RET_OK && spin_result != RCL_RET_TIMEOUT) {
         printf("micro-ROS executor stopped: %d\r\n", (int)spin_result);
         rcl_reset_error();
