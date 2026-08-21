@@ -306,13 +306,13 @@ void Init_RoboMas_CAN_System(CAN_HandleTypeDef *phcan) {  //CAN初期化
         }
 
     } else {
-        printf("CAN Instance Error\n");
+        printf("CAN Instance Error\n\r");
         Error_Handler();
     }
 
 
     if (HAL_CAN_Start(phcan) != HAL_OK) {
-        printf(" -> Start Error CAN_C620\n");
+        printf(" -> Start Error CAN_C620\n\r");
         Error_Handler();
     }
 
