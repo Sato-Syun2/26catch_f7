@@ -209,7 +209,7 @@ void StartRobstrideTask(void const *argument)
     MicroRos_RefreshRobstrideTargets();
 
     for (uint8_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
-      feedback_data[i] = Read_Robstride_FeedbackData(&robstride_dev_info_global[i]);
+      feedback_data[i] = Get_Robstride_FeedbackData(&robstride_dev_info_global[i]);
     }
 
     HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);

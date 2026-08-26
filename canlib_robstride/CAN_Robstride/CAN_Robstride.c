@@ -86,11 +86,11 @@ void Robstride_WaitForConnect(Robstride_DeviceInfo dev_info_array[], const uint8
             // Check_CAN_Error(dev_info_array[i].phcan); // CANエラーをチェック
             // Print_CAN_BitTiming_Params(dev_info_array[i].phcan); // CANビットタイミングパラメータを表示
             if (!Read_Robstride_FeedbackData(&dev_info_array[i]).get_flag) {
-                printf("[Robstride] Device %d Not Connected...\r\n", dev_info_array[i].device_id);
+                printf("[Robstride] Device id : %d Not Connected...\r\n", dev_info_array[i].device_id);
                 // 1台でも接続されていなければ (get_flagが0なら)、フラグを0にしてループを継続
                 flag = 0;
             } else {
-                printf("[Robstride] Device %d Connected!\r\n", dev_info_array[i].device_id);
+                printf("[Robstride] Device id : %d Connected!\r\n", dev_info_array[i].device_id);
             }
         }
         f_delay(100);

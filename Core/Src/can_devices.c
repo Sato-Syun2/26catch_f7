@@ -203,7 +203,7 @@ static void configure_robstride_common(Robstride_DeviceInfo *device)
     ctrl->torque_limit = ROBSTRIDE_TORQUE_LIMIT_DISABLE;
     ctrl->rotation = ROBSTRIDE_ROT_CW;
     ctrl->velocity_limit_size = 1.57079632679f;
-    ctrl->current_limit_size = 1.0f;
+    ctrl->current_limit_size = 1.5f;
     ctrl->torque_limit_size = 17.0f;
     ctrl->quant_per_rot = 360.0f / (2.0f * 3.14159265359f);
 }
