@@ -87,12 +87,6 @@ static bool robstride_command_valid[ROBSTRIDE_DEVICE_STORAGE_COUNT];
 static void command_callback(const void *msgin);
 static void feedback_timer_callback(rcl_timer_t *timer, int64_t last_call_time);
 
-/* CAN ライブラリが要求する void 戻り値の遅延関数へ CMSIS-RTOS を適合させる。 */
-static void microros_delay(uint32_t delay_ms)
-{
-  (void)osDelay(delay_ms);
-}
-
 static bool initialize_command_message(
     catch26_interface__msg__UrosF7Command *msg)
 {
@@ -177,15 +171,33 @@ static int find_robomas_device(const catch26_interface__msg__DeviceInfo *info)
   return -1;
 }
 
-static float command_target_value(
+/* unit_option は将来の拡張用であり、現時点では制御モードに使用しない。 */
+static float robstride_command_target_value(
+    const Robstride_DeviceInfo *device,
     const catch26_interface__msg__UrosF7MotorUnitCommand *command)
 {
-  switch (command->unit_option) {
-    case catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_POSITION:
+  switch (device->ctrl_param.ctrl_type) {
+    case ROBSTRIDE_CTRL_POS:
       return command->position;
-    case catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_VELOCITY:
+    case ROBSTRIDE_CTRL_VEL:
       return command->velocity;
-    case catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_CURRENT:
+    case ROBSTRIDE_CTRL_CURRENT:
+      return command->current;
+    default:
+      return 0.0f;
+  }
+}
+
+static float robomas_command_target_value(
+    const RoboMas_DeviceInfo *device,
+    const catch26_interface__msg__UrosF7MotorUnitCommand *command)
+{
+  switch (device->ctrl_param.ctrl_type) {
+    case ROBOMAS_CTRL_POS:
+      return command->position;
+    case ROBOMAS_CTRL_VEL:
+      return command->velocity;
+    case ROBOMAS_CTRL_CURRENT:
       return command->current;
     default:
       return 0.0f;
@@ -196,50 +208,15 @@ static void apply_robstride_command(
     Robstride_DeviceInfo *device,
     const catch26_interface__msg__UrosF7MotorUnitCommand *command)
 {
-  const uint8_t option = command->unit_option;
-
-  if (option == catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_DISABLE) {
-    Robstride_ControlDisable(device, microros_delay);
-    return;
-  }
-
-  if (option < catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_POSITION ||
-      option > catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_CURRENT) {
-    return;
-  }
-
-  const ROBSTRIDE_CTRL_TYPE requested_mode = (ROBSTRIDE_CTRL_TYPE)option;
-  if (device->ctrl_param.ctrl_type != requested_mode) {
-    Robstride_SetControl(device, requested_mode, microros_delay);
-  } else if (device->ctrl_param._enable_flag == 0U) {
-    Robstride_ControlEnable(device, microros_delay);
-  }
-
-  Robstride_SetTarget(device, command_target_value(command));
+  /* Robstride_SetTarget() 内で位置指令から offset_pos を減算する。 */
+  Robstride_SetTarget(device, robstride_command_target_value(device, command));
 }
 
 static void apply_robomas_command(
     RoboMas_DeviceInfo *device,
     const catch26_interface__msg__UrosF7MotorUnitCommand *command)
 {
-  const uint8_t option = command->unit_option;
-
-  if (option == catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_DISABLE) {
-    RoboMas_ControlDisable(device);
-    return;
-  }
-
-  if (option < catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_POSITION ||
-      option > catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_CURRENT) {
-    return;
-  }
-
-  const ROBOMAS_CTRL_TYPE requested_mode = (ROBOMAS_CTRL_TYPE)(option - 1U);
-  if (device->ctrl_param.ctrl_type != requested_mode) {
-    RoboMas_ChangeControl(device, requested_mode);
-  }
-  RoboMas_ControlEnable(device);
-  RoboMas_SetTarget(device, command_target_value(command));
+  RoboMas_SetTarget(device, robomas_command_target_value(device, command));
 }
 
 static void remember_last_command(
@@ -287,15 +264,9 @@ void MicroRos_RefreshRobstrideTargets(void)
     if (robstride_command_valid[i]) {
       const catch26_interface__msg__UrosF7MotorUnitCommand *command =
           &robstride_commands[i];
-      if (command->unit_option !=
-              catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_DISABLE &&
-          command->unit_option >=
-              catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_POSITION &&
-          command->unit_option <=
-              catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_CURRENT) {
-        Robstride_SetTarget(&robstride_dev_info_global[i],
-                            command_target_value(command));
-      }
+      Robstride_SetTarget(&robstride_dev_info_global[i],
+                          robstride_command_target_value(
+                              &robstride_dev_info_global[i], command));
     }
   }
 }
@@ -315,15 +286,12 @@ static void fill_local_time(builtin_interfaces__msg__Time *time_msg)
   time_msg->nanosec = (uint32_t)(now_ns % 1000000000LL);
 }
 
-static uint8_t robstride_state(const Robstride_FeedbackData *feedback)
+/* 直近に設定した制御モードを返す。無効化後も設定済みのモードは保持する。 */
+static uint8_t robstride_state(const Robstride_DeviceInfo *device)
 {
-  if (feedback->mode_status != ROBSTRIDE_STATE_ENABLE) {
-    return catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_DISABLE;
-  }
-
-  if (feedback->run_mode >= ROBSTRIDE_CTRL_POS &&
-      feedback->run_mode <= ROBSTRIDE_CTRL_CURRENT) {
-    return feedback->run_mode;
+  if (device->ctrl_param.ctrl_type >= ROBSTRIDE_CTRL_POS &&
+      device->ctrl_param.ctrl_type <= ROBSTRIDE_CTRL_CURRENT) {
+    return (uint8_t)device->ctrl_param.ctrl_type;
   }
 
   return catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_DISABLE;
@@ -341,7 +309,7 @@ static void set_robstride_feedback(
   output->position = feedback->position;
   output->velocity = feedback->velocity;
   output->current = feedback->current;
-  output->state = robstride_state(feedback);
+  output->state = robstride_state(device);
   output->unit_message_code = feedback->get_flag
                                   ? catch26_interface__msg__UrosF7MotorUnitFeedback__CODE_NORMAL
                                   : catch26_interface__msg__UrosF7MotorUnitFeedback__CODE_DISCONNECTION;

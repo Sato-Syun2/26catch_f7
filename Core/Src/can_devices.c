@@ -214,7 +214,7 @@ static void configure_robstride_0(void)
     Robstride_Ctrl_StructTypedef *ctrl = &robstride_dev_info_global[0].ctrl_param;
     configure_robstride_common(&robstride_dev_info_global[0]);
 
-    ctrl->offset_pos = 67.0f;
+    ctrl->offset_pos = 8.0f;
     ctrl->pid.kp_pos = 7.0f;
     ctrl->pid.kp_vel = 6.0f;
     ctrl->pid.ki_vel = 0.02f;
@@ -230,7 +230,7 @@ static void configure_robstride_1(void)
     Robstride_Ctrl_StructTypedef *ctrl = &robstride_dev_info_global[1].ctrl_param;
     configure_robstride_common(&robstride_dev_info_global[1]);
 
-    ctrl->offset_pos = 8.0f;
+    ctrl->offset_pos = 67.0f;
     ctrl->pid.kp_pos = 7.0f;
     ctrl->pid.kp_vel = 6.0f;
     ctrl->pid.ki_vel = 0.02f;
