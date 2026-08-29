@@ -57,35 +57,31 @@
 /* micro-ROS 本体は Core/Src/microros_app.c に分離している。 */
 /* USER CODE END Variables */
 osThreadId MROSTaskHandle;
-uint32_t defaultTaskBuffer[4096];
+uint32_t defaultTaskBuffer[ 4096 ];
 osStaticThreadDef_t defaultTaskControlBlock;
 osThreadId RobstrideTaskHandle;
-uint32_t RobstrideTaskBuffer[256];
+uint32_t RobstrideTaskBuffer[ 256 ];
 osStaticThreadDef_t RobstrideTaskControlBlock;
 osThreadId RobomasTaskHandle;
-uint32_t RobomasTaskBuffer[256];
+uint32_t RobomasTaskBuffer[ 256 ];
 osStaticThreadDef_t RobomasTaskControlBlock;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 /* USER CODE END FunctionPrototypes */
 
-void StartMROSTask(void const *argument);
-void StartRobstrideTask(void const *argument);
-void StartRobomasTask(void const *argument);
+void StartMROSTask(void const * argument);
+void StartRobstrideTask(void const * argument);
+void StartRobomasTask(void const * argument);
 
 extern void MX_LWIP_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /* GetIdleTaskMemory prototype (linked to static allocation support) */
-void vApplicationGetIdleTaskMemory(StaticTask_t **ppxIdleTaskTCBBuffer,
-                                   StackType_t **ppxIdleTaskStackBuffer,
-                                   uint32_t *pulIdleTaskStackSize);
+void vApplicationGetIdleTaskMemory( StaticTask_t **ppxIdleTaskTCBBuffer, StackType_t **ppxIdleTaskStackBuffer, uint32_t *pulIdleTaskStackSize );
 
 /* GetTimerTaskMemory prototype (linked to static allocation support) */
-void vApplicationGetTimerTaskMemory(StaticTask_t **ppxTimerTaskTCBBuffer,
-                                    StackType_t **ppxTimerTaskStackBuffer,
-                                    uint32_t *pulTimerTaskStackSize);
+void vApplicationGetTimerTaskMemory( StaticTask_t **ppxTimerTaskTCBBuffer, StackType_t **ppxTimerTaskStackBuffer, uint32_t *pulTimerTaskStackSize );
 
 /* USER CODE BEGIN GET_IDLE_TASK_MEMORY */
 static StaticTask_t xIdleTaskTCBBuffer;
@@ -122,8 +118,7 @@ void vApplicationGetTimerTaskMemory(StaticTask_t **ppxTimerTaskTCBBuffer,
   * @param  None
   * @retval None
   */
-void MX_FREERTOS_Init(void)
-{
+void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
   /* USER CODE END Init */
 
@@ -144,36 +139,22 @@ void MX_FREERTOS_Init(void)
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  osThreadStaticDef(MROSTask,
-                    StartMROSTask,
-                    osPriorityNormal,
-                    0,
-                    4096,
-                    defaultTaskBuffer,
-                    &defaultTaskControlBlock);
+  /* definition and creation of MROSTask */
+  osThreadStaticDef(MROSTask, StartMROSTask, osPriorityNormal, 0, 4096, defaultTaskBuffer, &defaultTaskControlBlock);
   MROSTaskHandle = osThreadCreate(osThread(MROSTask), NULL);
 
-  osThreadStaticDef(RobstrideTask,
-                    StartRobstrideTask,
-                    osPriorityIdle,
-                    0,
-                    256,
-                    RobstrideTaskBuffer,
-                    &RobstrideTaskControlBlock);
+  /* definition and creation of RobstrideTask */
+  osThreadStaticDef(RobstrideTask, StartRobstrideTask, osPriorityIdle, 0, 256, RobstrideTaskBuffer, &RobstrideTaskControlBlock);
   RobstrideTaskHandle = osThreadCreate(osThread(RobstrideTask), NULL);
 
-  osThreadStaticDef(RobomasTask,
-                    StartRobomasTask,
-                    osPriorityIdle,
-                    0,
-                    256,
-                    RobomasTaskBuffer,
-                    &RobomasTaskControlBlock);
+  /* definition and creation of RobomasTask */
+  osThreadStaticDef(RobomasTask, StartRobomasTask, osPriorityIdle, 0, 256, RobomasTaskBuffer, &RobomasTaskControlBlock);
   RobomasTaskHandle = osThreadCreate(osThread(RobomasTask), NULL);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
+
 }
 
 /* USER CODE BEGIN Header_StartMROSTask */
@@ -183,7 +164,7 @@ void MX_FREERTOS_Init(void)
   * @retval None
   */
 /* USER CODE END Header_StartMROSTask */
-void StartMROSTask(void const *argument)
+void StartMROSTask(void const * argument)
 {
   /* init code for LWIP */
   MX_LWIP_Init();
@@ -200,7 +181,7 @@ void StartMROSTask(void const *argument)
 * @retval None
 */
 /* USER CODE END Header_StartRobstrideTask */
-void StartRobstrideTask(void const *argument)
+void StartRobstrideTask(void const * argument)
 {
   /* USER CODE BEGIN StartRobstrideTask */
   (void)argument;
@@ -225,9 +206,19 @@ void StartRobstrideTask(void const *argument)
 * @retval None
 */
 /* USER CODE END Header_StartRobomasTask */
-void StartRobomasTask(void const *argument)
+void StartRobomasTask(void const * argument)
 {
   /* USER CODE BEGIN StartRobomasTask */
+  #if ROBOMAS_DEVICE_COUNT > 0U
+  printf("Calibration...\r\n");
+  RoboMas_Calibration(&robomas_dev_info_global[0],
+                      -3.0f,
+                      ROBOMAS_SWITCH_NO,
+                      sensor1_GPIO_Port,
+                      sensor1_Pin,
+                      &hcan2);
+  #endif
+
   (void)argument;
   for (;;) {
 #if ROBOMAS_DEVICE_COUNT > 0U
@@ -248,3 +239,4 @@ void StartRobomasTask(void const *argument)
 /* USER CODE BEGIN Application */
 /* micro-ROS の topic 処理は Core/Src/microros_app.c に分離している。 */
 /* USER CODE END Application */
+

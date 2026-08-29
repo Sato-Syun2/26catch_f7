@@ -6,12 +6,12 @@
 #include "CAN_Main.h"
 
 #define ROBSTRIDE_DEVICE_COUNT 0U
-#define ROBOMAS_C610_COUNT 0U
+#define ROBOMAS_C610_COUNT 1U
 #define ROBOMAS_C620_COUNT 0U
 #define ROBOMAS_DEVICE_COUNT (ROBOMAS_C610_COUNT + ROBOMAS_C620_COUNT)
 
 /*
- * Robstride の接続先。1 台ずつ確認する場合は DEVICE_COUNT を 1 にして
+ * Robstride の接続先。1 台ずつ確認す0る場合は DEVICE_COUNT を 1 にして
  * スロット 0 の種類と CAN ID を切り替える。
  */
 #define ROBSTRIDE_DEVICE_0_TYPE Robstride_05_Edu

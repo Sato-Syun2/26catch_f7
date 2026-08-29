@@ -9,6 +9,7 @@
 /Debug/
 /Release/
 /out/
+/cmake-build-*/
 
 # CMake generated
 CMakeCache.txt
@@ -27,6 +28,7 @@ build.ninja
 # ========================================
 /.vscode/
 /.settings/
+*.code-workspace
 
 # STM32CubeIDE / Eclipse metadata
 .project
@@ -60,3 +62,9 @@ build.ninja
 *~
 .DS_Store
 Thumbs.db
+
+# ========================================
+# Runtime/debug logs
+# ========================================
+/debug_logs/
+/gdbClient_log.txt
