@@ -95,6 +95,7 @@ target_include_directories(microros INTERFACE "${MICROROS_INCLUDE_DIR}")
 
 target_sources(${PROJECT_NAME} PRIVATE
     Core/Src/can_devices.c
+    Core/Src/microros_app.c
     # micro-ROS を STM32CubeMX/FreeRTOS/LwIP 上で動かすための補助実装。
     ${MICROROS_ROOT}/extra_sources/custom_memory_manager.c
     ${MICROROS_ROOT}/extra_sources/microros_allocators.c

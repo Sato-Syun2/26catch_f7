@@ -112,18 +112,22 @@ static void configure_robomas_common(RoboMas_DeviceInfo *device)
 
     ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_INTERNAL;
     ctrl->ctrl_type = ROBOMAS_CTRL_POS;
-    ctrl->current_limit = ROBOMAS_LIMIT_DISABLE;
+    ctrl->current_limit = ROBOMAS_LIMIT_ENABLE;
     ctrl->velocity_limit = ROBOMAS_LIMIT_DISABLE;
 }
 
 /* C610 #1（CAN ID 1）の設定。PID はここで個別に変更する。 */
+#if ROBOMAS_C610_COUNT > 0U
 static void configure_c610_1(void)
 {
     RoboMas_Ctrl_StructTypedef *ctrl = &robomas_dev_info_global[0].ctrl_param;
     configure_robomas_common(&robomas_dev_info_global[0]);
 
-    ctrl->rotation = ROBOMAS_ROT_CW;
+    ctrl->rotation = ROBOMAS_ROT_ACW;
+    ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_CALIB;
     ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f * 2.0f;
+    ctrl->current_limit_size = 2.0f;
+    ctrl->velocity_limit_size = 10.0f;
     ctrl->pid_vel.kp = 2.0f;
     ctrl->pid_vel.ki = 4.0f;
     ctrl->pid_vel.kd = 0.0f;
@@ -133,8 +137,10 @@ static void configure_c610_1(void)
     ctrl->pid_pos.kd = 0.0f;
     ctrl->pid_pos.kff = 0.0f;
 }
+#endif
 
 /* C610 #2（CAN ID 2）の設定。必要に応じて #1 と異なる値を設定する。 */
+#if ROBOMAS_C610_COUNT > 1U
 static void configure_c610_2(void)
 {
     RoboMas_Ctrl_StructTypedef *ctrl = &robomas_dev_info_global[1].ctrl_param;
@@ -142,6 +148,8 @@ static void configure_c610_2(void)
 
     ctrl->rotation = ROBOMAS_ROT_ACW;
     ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f;
+    ctrl->current_limit_size = 2.0f;
+    ctrl->velocity_limit_size = 10.0f;
     ctrl->pid_vel.kp = 2.0f;
     ctrl->pid_vel.ki = 4.0f;
     ctrl->pid_vel.kd = 0.0f;
@@ -151,8 +159,10 @@ static void configure_c610_2(void)
     ctrl->pid_pos.kd = 0.0f;
     ctrl->pid_pos.kff = 0.0f;
 }
+#endif
 
 /* C620 #1（CAN ID 3）の設定。 */
+#if ROBOMAS_C620_COUNT > 0U
 static void configure_c620_1(void)
 {
     RoboMas_Ctrl_StructTypedef *ctrl =
@@ -161,6 +171,8 @@ static void configure_c620_1(void)
 
     ctrl->rotation = ROBOMAS_ROT_ACW;
     ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f;
+    ctrl->current_limit_size = 2.0f;
+    ctrl->velocity_limit_size = 10.0f;
     ctrl->pid_vel.kp = 2.0f;
     ctrl->pid_vel.ki = 4.0f;
     ctrl->pid_vel.kd = 0.0f;
@@ -170,8 +182,10 @@ static void configure_c620_1(void)
     ctrl->pid_pos.kd = 0.0f;
     ctrl->pid_pos.kff = 0.0f;
 }
+#endif
 
 /* C620 #2（CAN ID 4）の設定。 */
+#if ROBOMAS_C620_COUNT > 1U
 static void configure_c620_2(void)
 {
     RoboMas_Ctrl_StructTypedef *ctrl =
@@ -180,6 +194,8 @@ static void configure_c620_2(void)
 
     ctrl->rotation = ROBOMAS_ROT_ACW;
     ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f;
+    ctrl->current_limit_size = 2.0f;
+    ctrl->velocity_limit_size = 10.0f;
     ctrl->pid_vel.kp = 2.0f;
     ctrl->pid_vel.ki = 4.0f;
     ctrl->pid_vel.kd = 0.0f;
@@ -189,9 +205,11 @@ static void configure_c620_2(void)
     ctrl->pid_pos.kd = 0.0f;
     ctrl->pid_pos.kff = 0.0f;
 }
+#endif
 
 #endif
 
+#if ROBSTRIDE_DEVICE_COUNT > 0U
 static void configure_robstride_common(Robstride_DeviceInfo *device)
 {
     Robstride_Ctrl_StructTypedef *ctrl = &device->ctrl_param;
@@ -209,6 +227,7 @@ static void configure_robstride_common(Robstride_DeviceInfo *device)
 }
 
 /* Robstride スロット 0 の設定。 */
+#if ROBSTRIDE_DEVICE_COUNT > 0U
 static void configure_robstride_0(void)
 {
     Robstride_Ctrl_StructTypedef *ctrl = &robstride_dev_info_global[0].ctrl_param;
@@ -223,8 +242,10 @@ static void configure_robstride_0(void)
     ctrl->pid.ki_cur = 0.05f;
     ctrl->pid.filter_cur = 0.06f;
 }
+#endif
 
 /* Robstride スロット 1 の設定。 */
+#if ROBSTRIDE_DEVICE_COUNT > 1U
 static void configure_robstride_1(void)
 {
     Robstride_Ctrl_StructTypedef *ctrl = &robstride_dev_info_global[1].ctrl_param;
@@ -239,6 +260,9 @@ static void configure_robstride_1(void)
     ctrl->pid.ki_cur = 0.05f;
     ctrl->pid.filter_cur = 0.06f;
 }
+#endif
+
+#endif
 
 void CanDevices_Init(CAN_HandleTypeDef *robomas_can,
                      CAN_HandleTypeDef *robstride_can,
