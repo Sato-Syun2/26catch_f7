@@ -155,7 +155,8 @@ void MX_FREERTOS_Init(void)
 
   osThreadStaticDef(RobstrideTask,
                     StartRobstrideTask,
-                    osPriorityIdle,
+                    /* ROS過負荷時にもCAN制御・診断タスクを止めない。 */
+                    osPriorityAboveNormal,
                     0,
                     256,
                     RobstrideTaskBuffer,
@@ -204,16 +205,32 @@ void StartRobstrideTask(void const *argument)
 {
   /* USER CODE BEGIN StartRobstrideTask */
   (void)argument;
+  uint8_t feedback_divider = 0U;
+  uint8_t target_refresh_divider = 0U;
   for (;;) {
-    /* ROS から受信した最新指令を CAN の周期に合わせて再送する。 */
-    MicroRos_RefreshRobstrideTargets();
+    /* ROS受信とCAN送信を分離し、ここをRobstrideの制御周期にする。 */
+    MicroRos_ApplyPendingRobstrideCommands();
+    MicroRos_ReportDiagnostics();
 
-    for (uint8_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
-      feedback_data[i] = Get_Robstride_FeedbackData(&robstride_dev_info_global[i]);
+    /* 保持用の再送は100 Hzに抑え、新しい目標値だけを500 Hzで送る。 */
+    ++target_refresh_divider;
+    if (target_refresh_divider >= 5U) {
+      MicroRos_RefreshRobstrideTargets();
+      target_refresh_divider = 0U;
+    }
+
+    /* フィードバック取得は従来の100 Hzを維持してCAN負荷を抑える。 */
+    ++feedback_divider;
+    if (feedback_divider >= 5U) {
+      for (uint8_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
+        feedback_data[i] = Get_Robstride_FeedbackData(
+            &robstride_dev_info_global[i]);
+      }
+      feedback_divider = 0U;
     }
 
     HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
-    osDelay(10U);
+    osDelay(2U);
   }
   /* USER CODE END StartRobstrideTask */
 }

@@ -1,6 +1,7 @@
 #include "can_devices.h"
 
 #include <math.h>
+#include <stdio.h>
 
 #include "CAN_Robstride_Def.h"
 #include "robstride_constant.h"
@@ -203,7 +204,7 @@ static void configure_robstride_common(Robstride_DeviceInfo *device)
     ctrl->torque_limit = ROBSTRIDE_TORQUE_LIMIT_DISABLE;
     ctrl->rotation = ROBSTRIDE_ROT_CW;
     ctrl->velocity_limit_size = 1.57079632679f;
-    ctrl->current_limit_size = 1.5f;
+    ctrl->current_limit_size = 2.0f;
     ctrl->torque_limit_size = 17.0f;
     ctrl->quant_per_rot = 360.0f / (2.0f * 3.14159265359f);
 }
@@ -214,6 +215,11 @@ static void configure_robstride_0(void)
     Robstride_Ctrl_StructTypedef *ctrl = &robstride_dev_info_global[0].ctrl_param;
     configure_robstride_common(&robstride_dev_info_global[0]);
 
+    /* ID2（根本）は速度制限を無効化し、通常確認用に2Aへ設定する。 */
+    ctrl->velocity_limit = ROBSTRIDE_VELOCITY_LIMIT_DISABLE;
+    ctrl->velocity_limit_size = 44.0f; /* Robstride_02の速度上限 */
+    ctrl->current_limit = ROBSTRIDE_CURRENT_LIMIT_ENABLE;
+    ctrl->current_limit_size = 2.0f; /* 通常確認用の電流上限 */
     ctrl->offset_pos = 8.0f;
     ctrl->pid.kp_pos = 7.0f;
     ctrl->pid.kp_vel = 6.0f;
@@ -303,6 +309,19 @@ void CanDevices_Init(CAN_HandleTypeDef *robomas_can,
         Robstride_WriteFloatData(device, ADDR_LIMIT_CURRENT,
                                  device->ctrl_param.current_limit_size);
         delay_function(10U);
+        /* 起動時に書き込んだ速度・電流リミットをモータから読み返す。 */
+        Robstride_RequestReadParameter(device, ADDR_LIMIT_SPEED);
+        delay_function(10U);
+        Robstride_RequestReadParameter(device, ADDR_LIMIT_CURRENT);
+        delay_function(10U);
+        {
+            const Robstride_FeedbackData applied_limits =
+                Read_Robstride_FeedbackData(device);
+            printf("[Robstride] ID %u applied limits: speed=%.6f rad/s, current=%.6f A\r\n",
+                   (unsigned int)device->device_id,
+                   (double)applied_limits.limit_spd,
+                   (double)applied_limits.limit_cur);
+        }
         Robstride_SetTorqueLimit(device);
         delay_function(10U);
 

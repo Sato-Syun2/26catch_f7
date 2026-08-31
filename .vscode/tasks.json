@@ -2,37 +2,23 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Configure Debug",
-            "type": "process",
-            "command": "${env:LOCALAPPDATA}/stm32cube/bundles/cmake/4.3.1+st.1/bin/cmake.exe",
+            "label": "Configure STM32 Debug",
+            "type": "shell",
+            "command": "/home/taiyo/.vscode/extensions/stmicroelectronics.stm32cube-ide-core-1.4.0-linux-x64/resources/binaries/linux/x86_64/cube",
             "args": [
-                "--preset",
-                "Debug"
+                "cmake", "--preset", "Debug"
             ],
-            "options": {
-                "env": {
-                    "PATH": "${env:LOCALAPPDATA}/stm32cube/bundles/ninja/1.13.2+st.1/bin;${env:LOCALAPPDATA}/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin;${env:PATH}"
-                }
-            },
             "problemMatcher": []
         },
         {
-            "label": "Build Debug",
-            "type": "process",
-            "command": "${env:LOCALAPPDATA}/stm32cube/bundles/cmake/4.3.1+st.1/bin/cmake.exe",
-            "dependsOn": "Configure Debug",
+            "label": "Build STM32 Debug",
+            "type": "shell",
+            "command": "/home/taiyo/.vscode/extensions/stmicroelectronics.stm32cube-ide-core-1.4.0-linux-x64/resources/binaries/linux/x86_64/cube",
+            "dependsOn": "Configure STM32 Debug",
             "dependsOrder": "sequence",
             "args": [
-                "--build",
-                "--preset",
-                "Debug",
-                "--parallel"
+                "cmake", "--build", "--preset", "Debug", "--parallel"
             ],
-            "options": {
-                "env": {
-                    "PATH": "${env:LOCALAPPDATA}/stm32cube/bundles/ninja/1.13.2+st.1/bin;${env:LOCALAPPDATA}/stm32cube/bundles/gnu-tools-for-stm32/14.3.1+st.2/bin;${env:PATH}"
-                }
-            },
             "group": {
                 "kind": "build",
                 "isDefault": true
@@ -42,23 +28,64 @@
             ]
         },
         {
-            "label": "Run STM32 (Flash and Reset)",
-            "type": "process",
-            "command": "${env:LOCALAPPDATA}/stm32cube/bundles/programmer/2.23.0/bin/STM32_Programmer_CLI.exe",
-            "dependsOn": "Build Debug",
+            "label": "Configure STM32 Release",
+            "type": "shell",
+            "command": "/home/taiyo/.vscode/extensions/stmicroelectronics.stm32cube-ide-core-1.4.0-linux-x64/resources/binaries/linux/x86_64/cube",
+            "args": [
+                "cmake", "--preset", "Release"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Build STM32 Release",
+            "type": "shell",
+            "command": "/home/taiyo/.vscode/extensions/stmicroelectronics.stm32cube-ide-core-1.4.0-linux-x64/resources/binaries/linux/x86_64/cube",
+            "dependsOn": "Configure STM32 Release",
             "dependsOrder": "sequence",
             "args": [
-                "-c",
-                "port=SWD",
-                "-w",
-                "${workspaceFolder}/build/Debug/26catch_f7.elf",
+                "cmake", "--build", "--preset", "Release", "--parallel"
+            ],
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
+            "label": "List STM32 ST-LINK probes",
+            "type": "shell",
+            "command": "/home/taiyo/.vscode/extensions/stmicroelectronics.stm32cube-ide-core-1.4.0-linux-x64/resources/binaries/linux/x86_64/cube",
+            "args": [
+                "programmer", "-l", "stlink-only"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "Flash STM32 (Debug)",
+            "type": "shell",
+            "command": "/home/taiyo/.vscode/extensions/stmicroelectronics.stm32cube-ide-core-1.4.0-linux-x64/resources/binaries/linux/x86_64/cube",
+            "dependsOn": "Build STM32 Debug",
+            "dependsOrder": "sequence",
+            "args": [
+                "programmer", "-c", "port=SWD",
+                "-w", "${workspaceFolder}/build/Debug/26catch_f7.elf",
                 "-v",
                 "-rst"
             ],
-            "presentation": {
-                "reveal": "always",
-                "panel": "shared"
-            },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "Flash STM32 (Release)",
+            "type": "shell",
+            "command": "/home/taiyo/.vscode/extensions/stmicroelectronics.stm32cube-ide-core-1.4.0-linux-x64/resources/binaries/linux/x86_64/cube",
+            "dependsOn": "Build STM32 Release",
+            "dependsOrder": "sequence",
+            "args": [
+                "programmer", "-c", "port=SWD",
+                "-w", "${workspaceFolder}/build/Release/26catch_f7.elf",
+                "-v",
+                "-rst"
+            ],
+            "group": "build",
             "problemMatcher": []
         }
     ]

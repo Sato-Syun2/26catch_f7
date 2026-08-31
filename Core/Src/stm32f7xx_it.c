@@ -317,6 +317,20 @@ void CAN3_RX1_IRQHandler(void)
   /* USER CODE END CAN3_RX1_IRQn 1 */
 }
 
+/**
+  * @brief This function handles CAN3 status change/error interrupt.
+  */
+void CAN3_SCE_IRQHandler(void)
+{
+  /* USER CODE BEGIN CAN3_SCE_IRQn 0 */
+
+  /* USER CODE END CAN3_SCE_IRQn 0 */
+  HAL_CAN_IRQHandler(&hcan3);
+  /* USER CODE BEGIN CAN3_SCE_IRQn 1 */
+
+  /* USER CODE END CAN3_SCE_IRQn 1 */
+}
+
 /* USER CODE BEGIN 1 */
 
 /* USER CODE END 1 */

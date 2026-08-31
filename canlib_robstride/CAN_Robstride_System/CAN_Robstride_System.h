@@ -59,6 +59,18 @@ void Robstride_WriteIntData(Robstride_DeviceInfo *device_info, uint16_t address,
 
 HAL_StatusTypeDef Robstride_SendBytes(CAN_HandleTypeDef *phcan, uint8_t motor_id, uint8_t cmd_id, uint16_t option, const uint8_t *bytes, uint32_t size);
 
+/*
+ * Runtime diagnostics.  These counters are read-and-cleared by the
+ * application task, so CAN interrupt handlers never print to the UART.
+ */
+uint32_t Robstride_TakeTxRingOverrunCount(void);
+uint32_t Robstride_TakeTxErrorCount(void);
+uint32_t Robstride_TakeCanErrorCount(void);
+uint32_t Robstride_TakeCanErrorCode(void);
+
+/* CAN error callbackから呼び出す。送信失敗時もCANキューを止めない。 */
+void Robstride_WhenCANErrorCallbackCalled(CAN_HandleTypeDef *phcan);
+
 void Init_Robstride_CAN_System(CAN_HandleTypeDef *phcan);
 
 void Robstride_fb_init(Robstride_DeviceInfo *device_info);
