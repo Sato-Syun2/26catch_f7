@@ -123,10 +123,11 @@ static void configure_c610_1(void)
     RoboMas_Ctrl_StructTypedef *ctrl = &robomas_dev_info_global[0].ctrl_param;
     configure_robomas_common(&robomas_dev_info_global[0]);
 
-    ctrl->rotation = ROBOMAS_ROT_ACW;
+    ctrl->rotation = ROBOMAS_ROT_CW;
     ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_CALIB;
-    ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f * 2.0f;
-    ctrl->current_limit_size = 2.0f;
+    // ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f * 2.0f;
+    ctrl->quant_per_rot = 49.5f / 36.0f * 2.0f;
+    ctrl->current_limit_size = 0.8f;
     ctrl->velocity_limit_size = 10.0f;
     ctrl->pid_vel.kp = 2.0f;
     ctrl->pid_vel.ki = 4.0f;
@@ -147,7 +148,8 @@ static void configure_c610_2(void)
     configure_robomas_common(&robomas_dev_info_global[1]);
 
     ctrl->rotation = ROBOMAS_ROT_ACW;
-    ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f;
+    ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_CALIB;
+    ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f* 2.0f;
     ctrl->current_limit_size = 2.0f;
     ctrl->velocity_limit_size = 10.0f;
     ctrl->pid_vel.kp = 2.0f;

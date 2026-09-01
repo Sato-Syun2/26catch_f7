@@ -217,6 +217,14 @@ void StartRobomasTask(void const * argument)
                       sensor1_GPIO_Port,
                       sensor1_Pin,
                       &hcan2);
+#if ROBOMAS_C610_COUNT > 1U
+  RoboMas_Calibration(&robomas_dev_info_global[1],
+                      -3.0f,
+                      ROBOMAS_SWITCH_NO,
+                      sensor2_GPIO_Port,
+                      sensor2_Pin,
+                      &hcan2);
+#endif
   printf("Calibration done.\r\n");
 #endif
 
