@@ -129,6 +129,11 @@ void HAL_CAN_RxFifo1MsgPendingCallback(CAN_HandleTypeDef *hcan){
   RoboMas_WhenCANRxFifo1MsgPending(hcan);
   Robstride_WhenCANRxFifo1MsgPending(hcan);
 }
+
+/* CANエラーはISR内でログ出力せず、Robstride側の診断カウンタへ渡す。 */
+void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *hcan){
+  Robstride_WhenCANErrorCallbackCalled(hcan);
+}
 /* USER CODE END 0 */
 
 /**

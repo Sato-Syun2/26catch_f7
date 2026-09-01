@@ -1,6 +1,7 @@
 #include "can_devices.h"
 
 #include <math.h>
+#include <stdio.h>
 
 #include "CAN_Robstride_Def.h"
 #include "robstride_constant.h"
@@ -329,6 +330,19 @@ void CanDevices_Init(CAN_HandleTypeDef *robomas_can,
         Robstride_WriteFloatData(device, ADDR_LIMIT_CURRENT,
                                  device->ctrl_param.current_limit_size);
         delay_function(10U);
+        /* 起動時に書き込んだ速度・電流リミットをモーターから読み返す。 */
+        Robstride_RequestReadParameter(device, ADDR_LIMIT_SPEED);
+        delay_function(10U);
+        Robstride_RequestReadParameter(device, ADDR_LIMIT_CURRENT);
+        delay_function(10U);
+        {
+            const Robstride_FeedbackData applied_limits =
+                Read_Robstride_FeedbackData(device);
+            printf("[Robstride] ID %u applied limits: speed=%.6f rad/s, current=%.6f A\r\n",
+                   (unsigned int)device->device_id,
+                   (double)applied_limits.limit_spd,
+                   (double)applied_limits.limit_cur);
+        }
         Robstride_SetTorqueLimit(device);
         delay_function(10U);
 

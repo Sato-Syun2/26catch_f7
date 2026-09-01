@@ -19,12 +19,44 @@ CAN_RingBuf_Robstride robstride_can_buf_ring1 = { 0 };
 robstride_feedback_data_raw _robstride_feedback_data_raw_global[129];
 Robstride_FeedbackData robstride_fb_data_global[129];
 
+/*
+ * Runtime diagnostics.  They are incremented from both task and CAN ISR
+ * contexts and consumed periodically by the Robstride task.
+ */
+static volatile uint32_t robstride_tx_ring_overrun_count = 0U;
+static volatile uint32_t robstride_tx_error_count = 0U;
+static volatile uint32_t robstride_can_error_count = 0U;
+static volatile uint32_t robstride_can_error_code = HAL_CAN_ERROR_NONE;
+
 // Private Function Prototypes --------------------------------
 
 static float uint_to_float(uint16_t x, float x_min, float x_max);
 static HAL_StatusTypeDef _Robstride_PushTx8Bytes(CAN_RingBuf_Robstride *p_can_ring, uint32_t ExtId, const uint8_t *bytes, uint32_t size);
 static HAL_StatusTypeDef _Robstride_PopSendTx8Bytes(CAN_HandleTypeDef *phcan, CAN_RingBuf_Robstride *p_can_ring);
 static void Robstride_set_fb_data_raw(uint32_t ExtID, const uint8_t rxData[], uint8_t device_id);
+
+static uint32_t robstride_take_counter(volatile uint32_t *counter)
+{
+    const uint32_t primask = __get_PRIMASK();
+    uint32_t value;
+
+    __disable_irq();
+    value = *counter;
+    *counter = 0U;
+    __set_PRIMASK(primask);
+    return value;
+}
+static uint32_t robstride_take_error_code(void)
+{
+    const uint32_t primask = __get_PRIMASK();
+    uint32_t value;
+
+    __disable_irq();
+    value = robstride_can_error_code;
+    robstride_can_error_code = HAL_CAN_ERROR_NONE;
+    __set_PRIMASK(primask);
+    return value;
+}
 
 // Functions --------------------------------
 
@@ -35,11 +67,17 @@ static float uint_to_float(const uint16_t x, const float x_min, const float x_ma
 }
 
 static HAL_StatusTypeDef _Robstride_PushTx8Bytes(CAN_RingBuf_Robstride *const p_can_ring, const uint32_t ExtId, const uint8_t *const bytes, const uint32_t size) {
+    const uint32_t primask = __get_PRIMASK();
+
+    /* The same ring is drained from CAN TX interrupts. */
+    __disable_irq();
     p_can_ring->buffer[p_can_ring->write_point].DLC = size;
     p_can_ring->buffer[p_can_ring->write_point].ExtId = ExtId;
     for (uint8_t i = 0; i < size; i++) p_can_ring->buffer[p_can_ring->write_point].bytes[i] = bytes[i];
 
     if (p_can_ring->is_full == 1) {
+        /* Keep the newest command.  Old queued frames are disposable. */
+        ++robstride_tx_ring_overrun_count;
         p_can_ring->read_point = ((p_can_ring->read_point) + 1) & (CAN_TXBUFFER_SIZE - 1);
     }
     p_can_ring->write_point = ((p_can_ring->write_point) + 1) & (CAN_TXBUFFER_SIZE - 1);
@@ -47,16 +85,22 @@ static HAL_StatusTypeDef _Robstride_PushTx8Bytes(CAN_RingBuf_Robstride *const p_
     if (p_can_ring->write_point == p_can_ring->read_point) {
         p_can_ring->is_full = 1;
     }
+    __set_PRIMASK(primask);
     return HAL_OK;
 }
 
 static HAL_StatusTypeDef _Robstride_PopSendTx8Bytes(CAN_HandleTypeDef *const phcan, CAN_RingBuf_Robstride *const p_can_ring) {
     CAN_TxHeaderTypeDef txHeader;
     uint32_t txMailbox;
+    HAL_StatusTypeDef result = HAL_OK;
+    const uint32_t primask = __get_PRIMASK();
 
     txHeader.RTR = CAN_RTR_DATA;
     txHeader.IDE = CAN_ID_EXT; // 拡張フォーマット
     txHeader.TransmitGlobalTime = DISABLE;
+
+    /* Keep the ring state consistent with the producer task. */
+    __disable_irq();
     while (HAL_CAN_GetTxMailboxesFreeLevel(phcan) > 0) {
         if ((p_can_ring->is_full == 0) && (p_can_ring->read_point == p_can_ring->write_point)) break;
 
@@ -65,11 +109,20 @@ static HAL_StatusTypeDef _Robstride_PopSendTx8Bytes(CAN_HandleTypeDef *const phc
         txHeader.ExtId = p_can_ring->buffer[p_can_ring->read_point].ExtId;
 
         HAL_StatusTypeDef ret = HAL_CAN_AddTxMessage(phcan, &txHeader, p_can_ring->buffer[p_can_ring->read_point].bytes, &txMailbox);
-        if (ret != HAL_OK) return ret;
+        if (ret != HAL_OK) {
+            /* A full/error mailbox is recoverable.  Drop this stale frame and
+             * let the next command or TX callback try again. */
+            ++robstride_tx_error_count;
+            p_can_ring->read_point = ((p_can_ring->read_point) + 1) & (CAN_TXBUFFER_SIZE - 1);
+            p_can_ring->is_full = 0;
+            result = ret;
+            break;
+        }
         p_can_ring->read_point = ((p_can_ring->read_point) + 1) & (CAN_TXBUFFER_SIZE - 1);
         p_can_ring->is_full = 0;
     }
-    return HAL_OK;
+    __set_PRIMASK(primask);
+    return result;
 }
 
 void Robstride_RequestReadParameter(Robstride_DeviceInfo *const device_info, const uint16_t address) {
@@ -104,7 +157,6 @@ HAL_StatusTypeDef Robstride_SendBytes(CAN_HandleTypeDef *const phcan, const uint
     for (uint8_t i = 0; i < quotient; i++) {
         ret = _Robstride_PushTx8Bytes(&robstride_can_buf_ring1, ExtId, bytes + i * 8, 8);
         if (ret != HAL_OK) {
-            Error_Handler();
             return ret;
         }
     }
@@ -112,16 +164,12 @@ HAL_StatusTypeDef Robstride_SendBytes(CAN_HandleTypeDef *const phcan, const uint
     if (remainder != 0) {
         ret = _Robstride_PushTx8Bytes(&robstride_can_buf_ring1, ExtId, bytes + quotient * 8, remainder);
         if (ret != HAL_OK) {
-            Error_Handler();
             return ret;
         }
     }
     ret = _Robstride_PopSendTx8Bytes(phcan, &robstride_can_buf_ring1);
-    if (ret != HAL_OK) {
-        Error_Handler();
-        return ret;
-    }
-    return HAL_OK;
+    /* Runtime CAN congestion must not enter Error_Handler(). */
+    return ret;
 }
 
 void Robstride_WhenTxMailboxCompleteCallbackCalled(CAN_HandleTypeDef *const phcan) {
@@ -132,6 +180,40 @@ void Robstride_WhenTxMailboxCompleteCallbackCalled(CAN_HandleTypeDef *const phca
 void Robstride_WhenTxMailboxAbortCallbackCalled(CAN_HandleTypeDef *const phcan) {
     if (_robstride_phcan_global != phcan) return;
     _Robstride_PopSendTx8Bytes(phcan, &robstride_can_buf_ring1);
+}
+
+void Robstride_WhenCANErrorCallbackCalled(CAN_HandleTypeDef *const phcan)
+{
+    if (_robstride_phcan_global != phcan) return;
+
+    const uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    ++robstride_can_error_count;
+    robstride_can_error_code |= HAL_CAN_GetError(phcan);
+    __set_PRIMASK(primask);
+
+    /* A mailbox may have become available after an aborted/error frame. */
+    (void)_Robstride_PopSendTx8Bytes(phcan, &robstride_can_buf_ring1);
+}
+
+uint32_t Robstride_TakeTxRingOverrunCount(void)
+{
+    return robstride_take_counter(&robstride_tx_ring_overrun_count);
+}
+
+uint32_t Robstride_TakeTxErrorCount(void)
+{
+    return robstride_take_counter(&robstride_tx_error_count);
+}
+
+uint32_t Robstride_TakeCanErrorCount(void)
+{
+    return robstride_take_counter(&robstride_can_error_count);
+}
+
+uint32_t Robstride_TakeCanErrorCode(void)
+{
+    return robstride_take_error_code();
 }
 
 void Get_Robstride_MCUID(const uint8_t rxData[], uint8_t device_id) {
@@ -406,6 +488,20 @@ void Init_Robstride_CAN_System(CAN_HandleTypeDef *const phcan) { // CAN初期化
 
     if (HAL_CAN_ActivateNotification(phcan, CAN_IT_TX_MAILBOX_EMPTY) != HAL_OK) {
         printf(" -> CAN_Activation error2\n\r");
+        Error_Handler();
+    }
+
+    /* Error/FIFO overrun通知はカウンタへ記録し、タスク側で警告する。 */
+    if (HAL_CAN_ActivateNotification(
+            phcan,
+            CAN_IT_ERROR_WARNING |
+            CAN_IT_ERROR_PASSIVE |
+            CAN_IT_BUSOFF |
+            CAN_IT_LAST_ERROR_CODE |
+            CAN_IT_ERROR |
+            CAN_IT_RX_FIFO0_OVERRUN |
+            CAN_IT_RX_FIFO1_OVERRUN) != HAL_OK) {
+        printf(" -> CAN_Error_Activation error\n\r");
         Error_Handler();
     }
 
