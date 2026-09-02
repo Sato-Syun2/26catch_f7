@@ -28,6 +28,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+#include "can.h"
 #include "usart.h"
 #include "CAN_Main.h"
 #include "can_devices.h"
@@ -59,6 +60,9 @@
 osThreadId MROSTaskHandle;
 uint32_t defaultTaskBuffer[4096];
 osStaticThreadDef_t defaultTaskControlBlock;
+osThreadId CanDevicesTaskHandle;
+uint32_t CanDevicesTaskBuffer[1024];
+osStaticThreadDef_t CanDevicesTaskControlBlock;
 osThreadId RobstrideTaskHandle;
 uint32_t RobstrideTaskBuffer[256];
 osStaticThreadDef_t RobstrideTaskControlBlock;
@@ -71,8 +75,19 @@ osStaticThreadDef_t RobomasTaskControlBlock;
 /* USER CODE END FunctionPrototypes */
 
 void StartMROSTask(void const *argument);
+void StartCanDevicesTask(void const *argument);
 void StartRobstrideTask(void const *argument);
 void StartRobomasTask(void const *argument);
+
+/*
+ * Robstride_WaitForConnect() is blocking by design, but it must yield when
+ * called from a FreeRTOS task.  HAL_Delay() busy-waits on this target and can
+ * starve the lower-priority Ethernet link task while a motor is absent.
+ */
+static void CanDevices_RtosDelay(uint32_t milliseconds)
+{
+  (void)osDelay(milliseconds == 0U ? 1U : milliseconds);
+}
 
 extern void MX_LWIP_Init(void);
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
@@ -153,6 +168,15 @@ void MX_FREERTOS_Init(void)
                     &defaultTaskControlBlock);
   MROSTaskHandle = osThreadCreate(osThread(MROSTask), NULL);
 
+  osThreadStaticDef(CanDevicesTask,
+                    StartCanDevicesTask,
+                    osPriorityNormal,
+                    0,
+                    1024,
+                    CanDevicesTaskBuffer,
+                    &CanDevicesTaskControlBlock);
+  CanDevicesTaskHandle = osThreadCreate(osThread(CanDevicesTask), NULL);
+
   osThreadStaticDef(RobstrideTask,
                     StartRobstrideTask,
                     /* ROS過負荷時にもCAN制御・診断タスクを止めない。 */
@@ -194,6 +218,56 @@ void StartMROSTask(void const *argument)
   /* USER CODE END StartMROSTask */
 }
 
+/* USER CODE BEGIN Header_StartCanDevicesTask */
+/**
+* @brief Run the existing blocking motor connection wait after the scheduler
+*        has started, so it cannot prevent micro-ROS from coming up.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartCanDevicesTask */
+void StartCanDevicesTask(void const *argument)
+{
+  /* USER CODE BEGIN StartCanDevicesTask */
+  (void)argument;
+  /* Yield during the blocking connection wait so Ethernet can progress. */
+  CanDevices_InitAfterWait(CanDevices_RtosDelay);
+  for (;;) {
+    osDelay(1000U);
+  }
+  /* USER CODE END StartCanDevicesTask */
+}
+
+#if ROBOMAS_DEVICE_COUNT > 0U
+/*
+ * Keep the calibration branch's "all configured motors first" behavior,
+ * while updating the ROS-visible feedback during the wait.  The wait is
+ * intentionally in RobomasTask, not before the scheduler starts.
+ */
+static void wait_for_robomas_connection(void)
+{
+  bool all_connected;
+
+  printf("[RoboMas] Wait for Connection...\r\n");
+  do {
+    all_connected = true;
+    for (uint8_t i = 0U; i < num_of_robomas; ++i) {
+      const RoboMas_FeedbackData feedback =
+          Get_RoboMas_FeedbackData(&robomas_dev_info_global[i]);
+      robomas_fb[i] = feedback;
+      if (feedback.get_flag == 0U) {
+        all_connected = false;
+      }
+    }
+    if (!all_connected) {
+      osDelay(5U);
+    }
+  } while (!all_connected);
+
+  printf("[RoboMas] All Connected!\r\n");
+}
+#endif
+
 /* USER CODE BEGIN Header_StartRobstrideTask */
 /**
 * @brief Function implementing the RobstrideTask thread.
@@ -205,6 +279,12 @@ void StartRobstrideTask(void const *argument)
 {
   /* USER CODE BEGIN StartRobstrideTask */
   (void)argument;
+
+  /* CanDevicesTask owns the blocking connection wait and final setup. */
+  while (!CanDevices_IsInitialized()) {
+    osDelay(10U);
+  }
+
   uint8_t feedback_divider = 0U;
   uint8_t target_refresh_divider = 0U;
   for (;;) {
@@ -246,6 +326,33 @@ void StartRobomasTask(void const *argument)
 {
   /* USER CODE BEGIN StartRobomasTask */
   (void)argument;
+
+  /* CAN2 feedback is independent of the Robstride connection wait. */
+  while (!CanDevices_IsPrepared()) {
+    osDelay(10U);
+  }
+
+#if ROBOMAS_DEVICE_COUNT > 0U
+  /* Import the original branch's automatic C610 ID1 calibration flow. */
+  wait_for_robomas_connection();
+  printf("Calibration...\r\n");
+  RoboMas_Calibration(&robomas_dev_info_global[0],
+                      -40.0f,
+                      ROBOMAS_SWITCH_NO,
+                      sensor1_GPIO_Port,
+                      sensor1_Pin,
+                      &hcan2);
+#if ROBOMAS_C610_COUNT > 1U
+  /* Imported from Ohmori's completed C610 ID4 calibration flow. */
+  RoboMas_Calibration(&robomas_dev_info_global[1],
+                      -40.0f,
+                      ROBOMAS_SWITCH_NO,
+                      sensor2_GPIO_Port,
+                      sensor2_Pin,
+                      &hcan2);
+#endif
+#endif
+
   for (;;) {
 #if ROBOMAS_DEVICE_COUNT > 0U
     RoboMas_SendRequest(robomas_dev_info_global,
@@ -253,7 +360,9 @@ void StartRobomasTask(void const *argument)
                         500.0f,
                         &hcan2);
     for (uint8_t i = 0U; i < num_of_robomas; ++i) {
-      robomas_fb[i] = Get_RoboMas_FeedbackData(&robomas_dev_info_global[i]);
+      const RoboMas_FeedbackData feedback =
+          Get_RoboMas_FeedbackData(&robomas_dev_info_global[i]);
+      robomas_fb[i] = feedback;
     }
 #endif
     osDelay(2U);
