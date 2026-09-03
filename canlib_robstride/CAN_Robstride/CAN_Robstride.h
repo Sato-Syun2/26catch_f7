@@ -42,9 +42,16 @@ void Robstride_WaitForConnect(Robstride_DeviceInfo dev_info_array[], uint8_t siz
 
 void Robstride_Initialization(Robstride_DeviceInfo dev_info_array[], uint8_t size);
 
-void Robstride_ControlEnable(Robstride_DeviceInfo *dev_info, DelayFunction_t f_delay);
+/* Returns 1 when the motor reports the requested state, 0 on timeout. */
+uint8_t Robstride_ControlEnable(Robstride_DeviceInfo *dev_info, DelayFunction_t f_delay);
 
-void Robstride_ControlDisable(Robstride_DeviceInfo *dev_info, DelayFunction_t f_delay);
+/* Returns 1 when the motor reports the requested state, 0 on timeout. */
+uint8_t Robstride_ControlDisable(Robstride_DeviceInfo *dev_info, DelayFunction_t f_delay);
+
+/* Service path: write/read-back verification with priority CAN traffic. */
+uint8_t Robstride_ServiceChangeControl(Robstride_DeviceInfo *dev_info,
+                                       ROBSTRIDE_CTRL_TYPE new_ctrl_type,
+                                       DelayFunction_t f_delay);
 
 float get_target_pos(float now_pos, float target_pos);
 

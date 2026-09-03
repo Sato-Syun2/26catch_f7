@@ -29,7 +29,7 @@ void RoboMas_SetTarget(RoboMas_DeviceInfo *device_info, float target_value); // 
 
 void RoboMas_ControlEnable(RoboMas_DeviceInfo *dev_info); // 制御有効化
 
-void RoboMas_ControlDisable(RoboMas_DeviceInfo *dev_info); // 制御無効化
+void RoboMas_ControlDisable(RoboMas_DeviceInfo *dev_info); // 制御無効化（目標/PIDをクリアし、次周期に0電流送信）
 
 bool RoboMas_IsCalibrationEnded(RoboMas_DeviceInfo *dev_info); // キャリブレーションが終わったか否か
 

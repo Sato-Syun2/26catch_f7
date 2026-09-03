@@ -66,7 +66,8 @@ typedef struct {
     // ↓ don't change
     float _target_value;
     float _req_value;
-    bool _enable_flag;
+    volatile bool _target_valid;
+    volatile bool _enable_flag;
 
     // for calibration
     bool _is_calibrating;

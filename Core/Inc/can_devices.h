@@ -1,6 +1,9 @@
 #ifndef CAN_DEVICES_H
 #define CAN_DEVICES_H
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "CAN_RoboMas.h"
 #include "CAN_Robstride.h"
 #include "CAN_Main.h"
@@ -39,5 +42,19 @@ extern float feedback_offset[ROBSTRIDE_DEVICE_STORAGE_COUNT];
 void CanDevices_Init(CAN_HandleTypeDef *robomas_can,
                      CAN_HandleTypeDef *robstride_can,
                      DelayFunction_t delay_function);
+
+/*
+ * Split initialization used when micro-ROS must start before the
+ * Robstride connection wait.  The existing WaitForConnect implementation
+ * remains unchanged and is called by CanDevices_InitAfterWait().
+ */
+void CanDevices_InitBeforeWait(CAN_HandleTypeDef *robomas_can,
+                               CAN_HandleTypeDef *robstride_can,
+                               DelayFunction_t delay_function);
+void CanDevices_InitAfterWait(DelayFunction_t delay_function);
+
+bool CanDevices_IsPrepared(void);
+bool CanDevices_IsInitialized(void);
+Robstride_FeedbackData CanDevices_GetRobstrideFeedback(uint32_t index);
 
 #endif /* CAN_DEVICES_H */

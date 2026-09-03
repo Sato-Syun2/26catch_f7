@@ -175,7 +175,12 @@ int main(void)
   MX_CAN3_Init();
   /* USER CODE BEGIN 2 */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_SET); // LD3 (RED) -> ON
-  CanDevices_Init(&hcan2, &hcan3, HAL_Delay);
+  /*
+   * Prepare CAN devices before the scheduler, but leave the blocking
+   * Robstride_WaitForConnect() and the remaining setup to CanDevicesTask.
+   * This lets micro-ROS start while the connection check is waiting.
+   */
+  CanDevices_InitBeforeWait(&hcan2, &hcan3, HAL_Delay);
 
 
   /* USER CODE END 2 */

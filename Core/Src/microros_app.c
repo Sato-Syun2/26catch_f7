@@ -56,6 +56,7 @@
 #define MICROROS_COMMAND_NOMINAL_HZ   500U
 #define MICROROS_DIAGNOSTIC_PERIOD_MS 1000U
 
+<<<<<<< HEAD
 #define ROBSTRIDE_FAULT_MOTOR_OVERTEMPERATURE   (1UL << 0)
 #define ROBSTRIDE_FAULT_DRIVER_FAILURE          (1UL << 1)
 #define ROBSTRIDE_FAULT_UNDERVOLTAGE            (1UL << 2)
@@ -67,6 +68,8 @@
 #define ROBSTRIDE_FAULT_A_PHASE_OVERCURRENT     (1UL << 16)
 #define ROBSTRIDE_WARNING_MOTOR_OVERTEMPERATURE (1UL << 0)
 
+=======
+>>>>>>> Yasaki
 /* UrosF7Param.mode の共通値。3 は将来の自作位置制御用に予約する。 */
 #define MICROROS_MODE_POSITION        0U
 #define MICROROS_MODE_VELOCITY        1U
@@ -142,6 +145,10 @@ static uint32_t take_counter(volatile uint32_t *counter)
   __set_PRIMASK(primask);
   return value;
 }
+<<<<<<< HEAD
+=======
+
+>>>>>>> Yasaki
 typedef enum {
   MICROROS_TARGET_ROBSTRIDE = 0,
   MICROROS_TARGET_ROBOMASTER = 1
@@ -343,6 +350,23 @@ static void set_parameter_response(
   response->message.size = message_size;
 }
 
+<<<<<<< HEAD
+=======
+static void invalidate_robstride_command(Robstride_DeviceInfo *device)
+{
+  const uint32_t index = (uint32_t)(device - robstride_dev_info_global);
+  if (index >= ROBSTRIDE_DEVICE_COUNT) {
+    return;
+  }
+
+  const uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+  robstride_command_valid[index] = false;
+  robstride_command_pending[index] = false;
+  __set_PRIMASK(primask);
+}
+
+>>>>>>> Yasaki
 static bool set_robstride_mode(Robstride_DeviceInfo *device, uint8_t mode)
 {
   ROBSTRIDE_CTRL_TYPE ctrl_type;
@@ -350,6 +374,7 @@ static bool set_robstride_mode(Robstride_DeviceInfo *device, uint8_t mode)
     return false;
   }
 
+<<<<<<< HEAD
   if (Read_Robstride_FeedbackData(device).get_flag == 0U) {
     return false;
   }
@@ -399,6 +424,11 @@ static void log_robstride_runtime(
          (double)feedback.position,
          (double)feedback.velocity,
          (double)feedback.current);
+=======
+  /* モード遷移中に旧ROS目標を低優先度CANへ再投入させない。 */
+  invalidate_robstride_command(device);
+  return Robstride_ServiceChangeControl(device, ctrl_type, microros_delay) != 0U;
+>>>>>>> Yasaki
 }
 
 static bool set_robomas_mode(RoboMas_DeviceInfo *device, uint8_t mode)
@@ -432,11 +462,14 @@ static void parameter_service_callback(const void *request_msg,
     return;
   }
 
+<<<<<<< HEAD
   printf("[micro-ROS] param request: target_size=%lu command_size=%lu data=%.3f\r\n",
          (unsigned long)request->target.size,
          (unsigned long)request->command.size,
          (double)request->data);
 
+=======
+>>>>>>> Yasaki
   if (!parse_motor_target(&request->target, &target_type, &device_id)) {
     set_parameter_response(response, false, "invalid target");
     return;
@@ -478,10 +511,13 @@ static void parameter_service_callback(const void *request_msg,
                            : set_robomas_mode(
                                &robomas_dev_info_global[device_index], mode);
     if (changed) {
+<<<<<<< HEAD
       printf("[micro-ROS] %s ID %u mode=%u\r\n",
              target_type == MICROROS_TARGET_ROBSTRIDE ? "Robstride" : "RoboMaster",
              (unsigned int)device_id,
              (unsigned int)mode);
+=======
+>>>>>>> Yasaki
       set_parameter_response(response, true, "mode changed");
     } else {
       set_parameter_response(response, false, "mode change failed");
@@ -492,16 +528,31 @@ static void parameter_service_callback(const void *request_msg,
   /* Enable/Disable は data を参照しない。 */
   if (target_type == MICROROS_TARGET_ROBSTRIDE) {
     Robstride_DeviceInfo *device = &robstride_dev_info_global[device_index];
+<<<<<<< HEAD
+=======
+    invalidate_robstride_command(device);
+>>>>>>> Yasaki
     if (Read_Robstride_FeedbackData(device).get_flag == 0U) {
       set_parameter_response(response, false, "motor disconnected");
       return;
     }
+<<<<<<< HEAD
     if (is_enable) {
       Robstride_ControlEnable(device, microros_delay);
     } else {
       Robstride_ControlDisable(device, microros_delay);
     }
     log_robstride_runtime(device, is_enable ? "enabled" : "disabled");
+=======
+    const uint8_t control_ok = is_enable
+                                 ? Robstride_ControlEnable(device, microros_delay)
+                                 : Robstride_ControlDisable(device, microros_delay);
+    if (!control_ok) {
+      set_parameter_response(response, false,
+                             is_enable ? "enable timeout" : "disable timeout");
+      return;
+    }
+>>>>>>> Yasaki
   } else {
     RoboMas_DeviceInfo *device = &robomas_dev_info_global[device_index];
     if (is_enable) {
@@ -511,10 +562,13 @@ static void parameter_service_callback(const void *request_msg,
     }
   }
 
+<<<<<<< HEAD
   printf("[micro-ROS] %s ID %u %s\r\n",
          target_type == MICROROS_TARGET_ROBSTRIDE ? "Robstride" : "RoboMaster",
          (unsigned int)device_id,
          is_enable ? "enabled" : "disabled");
+=======
+>>>>>>> Yasaki
   set_parameter_response(response, true, is_enable ? "enabled" : "disabled");
 }
 
@@ -796,6 +850,7 @@ void MicroRos_RefreshRobstrideTargets(void)
   }
 }
 
+<<<<<<< HEAD
 static void report_robstride_fault_events(void)
 {
   uint8_t device_id;
@@ -849,6 +904,8 @@ static void report_robstride_fault_events(void)
   }
 }
 
+=======
+>>>>>>> Yasaki
 void MicroRos_ReportDiagnostics(void)
 {
   const uint32_t now = HAL_GetTick();
@@ -868,12 +925,19 @@ void MicroRos_ReportDiagnostics(void)
   const uint32_t received = take_counter(&microros_command_received_count);
   const uint32_t coalesced = take_counter(&microros_command_coalesced_count);
   const uint32_t ring_overrun = Robstride_TakeTxRingOverrunCount();
+<<<<<<< HEAD
+=======
+  const uint32_t priority_queue_full = Robstride_TakePriorityQueueFullCount();
+>>>>>>> Yasaki
   const uint32_t tx_errors = Robstride_TakeTxErrorCount();
   const uint32_t can_errors = Robstride_TakeCanErrorCount();
   const uint32_t can_error_code = Robstride_TakeCanErrorCode();
 
+<<<<<<< HEAD
   report_robstride_fault_events();
 
+=======
+>>>>>>> Yasaki
   if (received > MICROROS_COMMAND_NOMINAL_HZ || coalesced > 0U) {
     printf("Warning: uros_f7_command overload: %lu callbacks/s, "
            "coalesced=%lu; latest-value control continues\r\n",
@@ -881,11 +945,22 @@ void MicroRos_ReportDiagnostics(void)
            (unsigned long)coalesced);
   }
 
+<<<<<<< HEAD
   if (ring_overrun > 0U || tx_errors > 0U || can_errors > 0U ||
       can_error_code != HAL_CAN_ERROR_NONE) {
     printf("Warning: Robstride CAN congestion: ring_overrun=%lu, "
            "tx_errors=%lu, can_events=%lu, code=0x%08lx; continuing\r\n",
            (unsigned long)ring_overrun,
+=======
+  if (ring_overrun > 0U || priority_queue_full > 0U || tx_errors > 0U ||
+      can_errors > 0U ||
+      can_error_code != HAL_CAN_ERROR_NONE) {
+    printf("Warning: Robstride CAN congestion: ring_overrun=%lu, "
+           "priority_queue_full=%lu, tx_errors=%lu, can_events=%lu, "
+           "code=0x%08lx; continuing\r\n",
+           (unsigned long)ring_overrun,
+           (unsigned long)priority_queue_full,
+>>>>>>> Yasaki
            (unsigned long)tx_errors,
            (unsigned long)can_errors,
            (unsigned long)can_error_code);
@@ -930,15 +1005,24 @@ static void set_robstride_feedback(
     uint32_t index)
 {
   const Robstride_DeviceInfo *device = &robstride_dev_info_global[index];
-  const Robstride_FeedbackData *feedback = &feedback_data[index];
+  const Robstride_FeedbackData feedback =
+      CanDevices_GetRobstrideFeedback(index);
 
   output->info.type = catch26_interface__msg__DeviceInfo__TYPE_ROBSTRIDE;
   output->info.id = device->device_id;
+<<<<<<< HEAD
   output->position = feedback->position;
   output->velocity = feedback->velocity;
   output->current = feedback->current;
   output->state = robstride_state(device, feedback);
   output->unit_message_code = feedback->get_flag
+=======
+  output->position = feedback.position;
+  output->velocity = feedback.velocity;
+  output->current = feedback.current;
+  output->state = robstride_state(device, &feedback);
+  output->unit_message_code = feedback.get_flag
+>>>>>>> Yasaki
                                   ? catch26_interface__msg__UrosF7MotorUnitFeedback__CODE_NORMAL
                                   : catch26_interface__msg__UrosF7MotorUnitFeedback__CODE_DISCONNECTION;
 }
@@ -983,7 +1067,8 @@ static void feedback_timer_callback(rcl_timer_t *timer, int64_t last_call_time)
       break;
     }
     set_robstride_feedback(&feedback_msg.feedback.data[feedback_count], i);
-    all_connected = all_connected && (feedback_data[i].get_flag != 0U);
+    all_connected = all_connected &&
+                    (CanDevices_GetRobstrideFeedback(i).get_flag != 0U);
     ++feedback_count;
   }
 
@@ -1022,12 +1107,14 @@ static void wait_for_network(void)
     osDelay(100U);
     HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_7);
   }
+  printf("F7 Ethernet IP configured\r\n");
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_SET);
 
   while (!netif_is_link_up(&gnetif)) {
     osDelay(1000U);
     HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
   }
+  printf("F7 Ethernet link up\r\n");
 }
 
 static bool initialize_messages(void)
@@ -1077,6 +1164,7 @@ void MicroRosTask_Run(void)
 {
   printf("Start Micro-ROS Task\r\n");
   wait_for_network();
+  printf("micro-ROS waiting for agent at %s:8888\r\n", MICROROS_AGENT_IP);
 
   for (;;) {
     rmw_uros_set_custom_transport(
