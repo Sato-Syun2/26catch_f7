@@ -10,6 +10,8 @@
 
 // Includes --------------------------------
 
+#include <stdbool.h>
+
 #include "main.h"
 #include "CAN_Robstride_Def.h"
 
@@ -49,7 +51,7 @@ void Robstride_SetCANID(Robstride_DeviceInfo *device_info, uint8_t new_id);
 
 void Robstride_ProcessParameter(const uint8_t rxData[], uint8_t device_id);
 
-void Robstride_ProcessFault(const uint8_t rxData[], uint8_t device_id);
+void Robstride_ProcessFault(const uint8_t rxData[], uint32_t extended_id);
 
 void Robstride_RequestReadParameter(Robstride_DeviceInfo *device_info, uint16_t address);
 
@@ -67,6 +69,11 @@ uint32_t Robstride_TakeTxRingOverrunCount(void);
 uint32_t Robstride_TakeTxErrorCount(void);
 uint32_t Robstride_TakeCanErrorCount(void);
 uint32_t Robstride_TakeCanErrorCode(void);
+
+/* CAN受信割り込みで記録した故障状態の変化をタスク側で取得する。 */
+bool Robstride_TakeFaultEvent(uint8_t *device_id,
+                              uint32_t *fault_value,
+                              uint32_t *warning_value);
 
 /* CAN error callbackから呼び出す。送信失敗時もCANキューを止めない。 */
 void Robstride_WhenCANErrorCallbackCalled(CAN_HandleTypeDef *phcan);

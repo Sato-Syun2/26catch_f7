@@ -56,6 +56,17 @@
 #define MICROROS_COMMAND_NOMINAL_HZ   500U
 #define MICROROS_DIAGNOSTIC_PERIOD_MS 1000U
 
+#define ROBSTRIDE_FAULT_MOTOR_OVERTEMPERATURE   (1UL << 0)
+#define ROBSTRIDE_FAULT_DRIVER_FAILURE          (1UL << 1)
+#define ROBSTRIDE_FAULT_UNDERVOLTAGE            (1UL << 2)
+#define ROBSTRIDE_FAULT_OVERVOLTAGE             (1UL << 3)
+#define ROBSTRIDE_FAULT_B_PHASE_OVERCURRENT     (1UL << 4)
+#define ROBSTRIDE_FAULT_C_PHASE_OVERCURRENT     (1UL << 5)
+#define ROBSTRIDE_FAULT_ENCODER_UNCALIBRATED    (1UL << 7)
+#define ROBSTRIDE_FAULT_OVERLOAD                (0xFFUL << 8)
+#define ROBSTRIDE_FAULT_A_PHASE_OVERCURRENT     (1UL << 16)
+#define ROBSTRIDE_WARNING_MOTOR_OVERTEMPERATURE (1UL << 0)
+
 /* UrosF7Param.mode の共通値。3 は将来の自作位置制御用に予約する。 */
 #define MICROROS_MODE_POSITION        0U
 #define MICROROS_MODE_VELOCITY        1U
@@ -785,6 +796,59 @@ void MicroRos_RefreshRobstrideTargets(void)
   }
 }
 
+static void report_robstride_fault_events(void)
+{
+  uint8_t device_id;
+  uint32_t fault_value;
+  uint32_t warning_value;
+
+  while (Robstride_TakeFaultEvent(&device_id, &fault_value,
+                                  &warning_value)) {
+    if ((fault_value == 0U) && (warning_value == 0U)) {
+      printf("[Robstride] motor%u: fault cleared\r\n",
+             (unsigned int)device_id);
+      continue;
+    }
+
+    printf("[Robstride] motor%u fault=0x%08lx warning=0x%08lx:",
+           (unsigned int)device_id,
+           (unsigned long)fault_value,
+           (unsigned long)warning_value);
+
+    if ((fault_value & ROBSTRIDE_FAULT_MOTOR_OVERTEMPERATURE) != 0U) {
+      printf(" Motor over temperature fault;");
+    }
+    if ((fault_value & ROBSTRIDE_FAULT_DRIVER_FAILURE) != 0U) {
+      printf(" Driver chip failure;");
+    }
+    if ((fault_value & ROBSTRIDE_FAULT_UNDERVOLTAGE) != 0U) {
+      printf(" Undervoltage fault;");
+    }
+    if ((fault_value & ROBSTRIDE_FAULT_OVERVOLTAGE) != 0U) {
+      printf(" Overvoltage fault;");
+    }
+    if ((fault_value & ROBSTRIDE_FAULT_B_PHASE_OVERCURRENT) != 0U) {
+      printf(" B-phase current sampling overcurrent;");
+    }
+    if ((fault_value & ROBSTRIDE_FAULT_C_PHASE_OVERCURRENT) != 0U) {
+      printf(" C-phase current sampling overcurrent;");
+    }
+    if ((fault_value & ROBSTRIDE_FAULT_ENCODER_UNCALIBRATED) != 0U) {
+      printf(" Encoder not calibrated;");
+    }
+    if ((fault_value & ROBSTRIDE_FAULT_OVERLOAD) != 0U) {
+      printf(" Overload fault;");
+    }
+    if ((fault_value & ROBSTRIDE_FAULT_A_PHASE_OVERCURRENT) != 0U) {
+      printf(" A-phase current sampling overcurrent;");
+    }
+    if ((warning_value & ROBSTRIDE_WARNING_MOTOR_OVERTEMPERATURE) != 0U) {
+      printf(" Motor over temperature warning;");
+    }
+    printf("\r\n");
+  }
+}
+
 void MicroRos_ReportDiagnostics(void)
 {
   const uint32_t now = HAL_GetTick();
@@ -807,6 +871,8 @@ void MicroRos_ReportDiagnostics(void)
   const uint32_t tx_errors = Robstride_TakeTxErrorCount();
   const uint32_t can_errors = Robstride_TakeCanErrorCount();
   const uint32_t can_error_code = Robstride_TakeCanErrorCode();
+
+  report_robstride_fault_events();
 
   if (received > MICROROS_COMMAND_NOMINAL_HZ || coalesced > 0U) {
     printf("Warning: uros_f7_command overload: %lu callbacks/s, "

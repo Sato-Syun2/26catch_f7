@@ -203,7 +203,8 @@ void StartRobstrideTask(void const * argument)
     ++feedback_divider;
     if (feedback_divider >= 5U) {
       for (uint8_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
-        feedback_data[i] = Get_Robstride_FeedbackData(
+        /* Type 2の標準フィードバックを使用し、追加の読出し要求を送らない。 */
+        feedback_data[i] = Read_Robstride_FeedbackData(
             &robstride_dev_info_global[i]);
       }
       feedback_divider = 0U;
@@ -228,20 +229,24 @@ void StartRobomasTask(void const * argument)
 #if ROBOMAS_C610_COUNT > 0U
   printf("Calibration...\r\n");
   RoboMas_Calibration(&robomas_dev_info_global[0],
-                      -3.0f,
-                      ROBOMAS_SWITCH_NO,
-                      sensor1_GPIO_Port,
-                      sensor1_Pin,
-                      &hcan2);
-#if ROBOMAS_C610_COUNT > 1U
-  RoboMas_Calibration(&robomas_dev_info_global[1],
-                      -3.0f,
+                      -4.0f,
                       ROBOMAS_SWITCH_NO,
                       sensor2_GPIO_Port,
                       sensor2_Pin,
                       &hcan2);
+#if ROBOMAS_C610_COUNT > 1U
+  printf("Calibration 2...\r\n");
+  RoboMas_Calibration(&robomas_dev_info_global[1],
+                      -1.0f,
+                      ROBOMAS_SWITCH_NO,
+                      sensor1_GPIO_Port,
+                      sensor1_Pin,
+                      &hcan2);
 #endif
-  printf("Calibration done.\r\n");
+#endif
+
+#if ROBOMAS_C610_COUNT > 0U
+  bool calibration_done_printed = false;
 #endif
 
   (void)argument;
@@ -251,6 +256,23 @@ void StartRobomasTask(void const * argument)
                         num_of_robomas,
                         500.0f,
                         &hcan2);
+
+#if ROBOMAS_C610_COUNT > 0U
+    if (!calibration_done_printed) {
+      bool calibration_done =
+          RoboMas_IsCalibrationEnded(&robomas_dev_info_global[0]);
+#if ROBOMAS_C610_COUNT > 1U
+      calibration_done =
+          calibration_done &&
+          RoboMas_IsCalibrationEnded(&robomas_dev_info_global[1]);
+#endif
+      if (calibration_done) {
+        printf("Calibration done.\r\n");
+        calibration_done_printed = true;
+      }
+    }
+#endif
+
     for (uint8_t i = 0U; i < num_of_robomas; ++i) {
       robomas_fb[i] = Get_RoboMas_FeedbackData(&robomas_dev_info_global[i]);
     }

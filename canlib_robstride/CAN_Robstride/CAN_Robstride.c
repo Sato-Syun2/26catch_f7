@@ -13,6 +13,8 @@
 
 // Private Function Prototypes --------------------------------
 
+#define ROBSTRIDE_CONTROL_RETRY_LIMIT 1000U
+
 static void Robstride_PID_Ctrl_init(Robstride_PID_StructTypedef *const params);
 static void Robstride_Ctrl_Struct_init(Robstride_Ctrl_StructTypedef *ctrl_struct);
 // static void Check_CAN_Error(CAN_HandleTypeDef *phcan);
@@ -594,7 +596,13 @@ void Robstride_SetTarget(Robstride_DeviceInfo *const device_info, const float ta
 void Robstride_ControlEnable(Robstride_DeviceInfo *const dev_info, DelayFunction_t f_delay) {
     uint8_t data[8] = { 0x00 }; // 送信するデータ配列を初期化 (内容はCMD_ENABLEでは使用されないことが多いが、形式として送信)
     // CANメッセージを送信 (CMD_ENABLE コマンド)
-    while (1) {
+    uint32_t retry;
+    for (retry = 0U; retry < ROBSTRIDE_CONTROL_RETRY_LIMIT; ++retry) {
+        if (retry + 1U >= ROBSTRIDE_CONTROL_RETRY_LIMIT) {
+            dev_info->ctrl_param._enable_flag = 0;
+            printf("[Robstride] Device id : %d enable timeout; kept disabled.\r\n", dev_info->device_id);
+            return;
+        }
         Robstride_SendBytes(dev_info->phcan, dev_info->device_id, CMD_ENABLE, dev_info->master_id, (uint8_t *)data, sizeof(data));
         f_delay(1);                                                                        // 書き込み後に少し待機
         if (Read_Robstride_FeedbackData(dev_info).mode_status == ROBSTRIDE_STATE_ENABLE) { // モータが有効になったか確認
@@ -612,7 +620,13 @@ void Robstride_ControlEnable(Robstride_DeviceInfo *const dev_info, DelayFunction
 void Robstride_ControlDisable(Robstride_DeviceInfo *const dev_info, DelayFunction_t f_delay) {
     uint8_t data[8] = { 0x00 }; // 送信するデータ配列を初期化 (内容はCMD_RESETでは使用されないことが多いが、形式として送信)
     // CANメッセージを送信 (CMD_RESET コマンド)
-    while (1) {
+    uint32_t retry;
+    for (retry = 0U; retry < ROBSTRIDE_CONTROL_RETRY_LIMIT; ++retry) {
+        if (retry + 1U >= ROBSTRIDE_CONTROL_RETRY_LIMIT) {
+            dev_info->ctrl_param._enable_flag = 0;
+            printf("[Robstride] Device id : %d disable timeout; kept disabled.\r\n", dev_info->device_id);
+            return;
+        }
         Robstride_SendBytes(dev_info->phcan, dev_info->device_id, CMD_RESET, dev_info->master_id, (uint8_t *)data, sizeof(data));
         f_delay(1);                                                                         // 書き込み後に少し待機
         if (Read_Robstride_FeedbackData(dev_info).mode_status == ROBSTRIDE_STATE_DISABLE) { // モータが無効になったか確認

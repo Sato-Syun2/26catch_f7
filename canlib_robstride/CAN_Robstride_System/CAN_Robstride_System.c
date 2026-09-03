@@ -28,6 +28,17 @@ static volatile uint32_t robstride_tx_error_count = 0U;
 static volatile uint32_t robstride_can_error_count = 0U;
 static volatile uint32_t robstride_can_error_code = HAL_CAN_ERROR_NONE;
 
+/*
+ * 故障フィードバックはCAN受信割り込みで受け取る。
+ * IDごとの最新状態だけを保持し、同じフレームを毎回割り込み内で
+ * printfせず、状態が変化したときだけタスクへ通知する。
+ */
+#define ROBSTRIDE_FAULT_ID_COUNT 256U
+static volatile uint32_t robstride_fault_value[ROBSTRIDE_FAULT_ID_COUNT];
+static volatile uint32_t robstride_warning_value[ROBSTRIDE_FAULT_ID_COUNT];
+static volatile uint8_t robstride_fault_pending[ROBSTRIDE_FAULT_ID_COUNT];
+static volatile uint8_t robstride_registered_device[ROBSTRIDE_FAULT_ID_COUNT];
+
 // Private Function Prototypes --------------------------------
 
 static float uint_to_float(uint16_t x, float x_min, float x_max);
@@ -56,6 +67,34 @@ static uint32_t robstride_take_error_code(void)
     robstride_can_error_code = HAL_CAN_ERROR_NONE;
     __set_PRIMASK(primask);
     return value;
+}
+
+static uint32_t robstride_unpack_u32_le(const uint8_t bytes[4])
+{
+    return ((uint32_t)bytes[0]) |
+           ((uint32_t)bytes[1] << 8) |
+           ((uint32_t)bytes[2] << 16) |
+           ((uint32_t)bytes[3] << 24);
+}
+
+static uint8_t robstride_resolve_fault_device_id(const uint32_t extended_id)
+{
+    const uint8_t low_id = (uint8_t)(extended_id & 0xFFU);
+    const uint8_t middle_id = (uint8_t)((extended_id >> 8) & 0xFFU);
+
+    /*
+     * 故障フレームのIDフィールドはRobStrideの機種により異なるため、
+     * 本アプリケーションに登録されたIDと一致するフィールドを優先する。
+     */
+    if (robstride_registered_device[low_id] != 0U) {
+        return low_id;
+    }
+    if (robstride_registered_device[middle_id] != 0U) {
+        return middle_id;
+    }
+
+    /* 未登録のフレームは下位IDをそのまま診断表示に使用する。 */
+    return low_id;
 }
 
 // Functions --------------------------------
@@ -186,10 +225,12 @@ void Robstride_WhenCANErrorCallbackCalled(CAN_HandleTypeDef *const phcan)
 {
     if (_robstride_phcan_global != phcan) return;
 
+    const uint32_t can_error = HAL_CAN_GetError(phcan);
     const uint32_t primask = __get_PRIMASK();
     __disable_irq();
     ++robstride_can_error_count;
-    robstride_can_error_code |= HAL_CAN_GetError(phcan);
+    robstride_can_error_code |= can_error;
+    (void)HAL_CAN_ResetError(phcan);
     __set_PRIMASK(primask);
 
     /* A mailbox may have become available after an aborted/error frame. */
@@ -214,6 +255,34 @@ uint32_t Robstride_TakeCanErrorCount(void)
 uint32_t Robstride_TakeCanErrorCode(void)
 {
     return robstride_take_error_code();
+}
+
+bool Robstride_TakeFaultEvent(uint8_t *const device_id,
+                              uint32_t *const fault_value,
+                              uint32_t *const warning_value)
+{
+    if ((device_id == NULL) || (fault_value == NULL) ||
+        (warning_value == NULL)) {
+        return false;
+    }
+
+    const uint32_t primask = __get_PRIMASK();
+    bool found = false;
+
+    __disable_irq();
+    for (uint32_t i = 0U; i < ROBSTRIDE_FAULT_ID_COUNT; ++i) {
+        if (robstride_fault_pending[i] != 0U) {
+            *device_id = (uint8_t)i;
+            *fault_value = robstride_fault_value[i];
+            *warning_value = robstride_warning_value[i];
+            robstride_fault_pending[i] = 0U;
+            found = true;
+            break;
+        }
+    }
+    __set_PRIMASK(primask);
+
+    return found;
 }
 
 void Get_Robstride_MCUID(const uint8_t rxData[], uint8_t device_id) {
@@ -300,10 +369,8 @@ void Robstride_WhenCANRxFifo0MsgPending(CAN_HandleTypeDef *const phcan) {
         motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
         Robstride_ProcessParameter(rxData, motor_id);
         // printf("response3 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
-    } else if (ExtId >= 0x15000000 && ExtId <= 0x15007F7F) {
-        // uint32_t master_id = (uint8_t)((ExtId >> 8)) & 0xFF;
-        motor_id = (uint8_t)(ExtId & 0xFF);
-        Robstride_ProcessFault(rxData, motor_id);
+    } else if ((ExtId & 0x1F000000U) == 0x15000000U) {
+        Robstride_ProcessFault(rxData, ExtId);
         // printf("response4 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
     }
     // printf("got response from %d\n\r", (int)motor_id);
@@ -334,10 +401,8 @@ void Robstride_WhenCANRxFifo1MsgPending(CAN_HandleTypeDef *const phcan) {
         motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
         Robstride_ProcessParameter(rxData, motor_id);
         // printf("response3 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
-    } else if (ExtId >= 0x15000000 && ExtId <= 0x15007F7F) {
-        // uint32_t master_id = (uint8_t)((ExtId >> 8)) & 0xFF;
-        motor_id = (uint8_t)(ExtId & 0xFF);
-        Robstride_ProcessFault(rxData, motor_id);
+    } else if ((ExtId & 0x1F000000U) == 0x15000000U) {
+        Robstride_ProcessFault(rxData, ExtId);
         // printf("response4 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
     }
     // printf("got response from %d\n\r", (int)motor_id);
@@ -688,40 +753,27 @@ void Robstride_ProcessParameter(const uint8_t rxData[], const uint8_t device_id)
     }
 }
 
-void Robstride_ProcessFault(const uint8_t rxData[], const uint8_t device_id) {
-    if ((rxData[0] & 0x01) != 0) {
-        printf("motor%d:Motor over temperature fault\n\r", (int)device_id);
+void Robstride_ProcessFault(const uint8_t rxData[], const uint32_t extended_id)
+{
+    const uint8_t device_id =
+        robstride_resolve_fault_device_id(extended_id);
+    const uint32_t fault_value = robstride_unpack_u32_le(&rxData[0]);
+    const uint32_t warning_value = robstride_unpack_u32_le(&rxData[4]);
+    const uint32_t primask = __get_PRIMASK();
+
+    __disable_irq();
+    if ((robstride_fault_value[device_id] != fault_value) ||
+        (robstride_warning_value[device_id] != warning_value)) {
+        robstride_fault_value[device_id] = fault_value;
+        robstride_warning_value[device_id] = warning_value;
+        robstride_fault_pending[device_id] = 1U;
     }
-    if ((rxData[0] & 0x02) != 0) {
-        printf("motor%d:Driver chip failure\n\r", (int)device_id);
-    }
-    if ((rxData[0] & 0x04) != 0) {
-        printf("motor%d:Undervoltage fault\n\r", (int)device_id);
-    }
-    if ((rxData[0] & 0x08) != 0) {
-        printf("motor%d:Overvoltage fault\n\r", (int)device_id);
-    }
-    if ((rxData[0] & 0x10) != 0) {
-        printf("motor%d:B-phase current sampling overcurrent\n\r", (int)device_id);
-    }
-    if ((rxData[0] & 0x20) != 0) {
-        printf("motor%d:C-phase current sampling overcurrent\n\r", (int)device_id);
-    }
-    if ((rxData[0] & 0x80) != 0) {
-        printf("motor%d:Encoder not calibrated\n\r", (int)device_id);
-    }
-    if ((rxData[0] & 0x100) != 0) {
-        printf("motor%d:Overload fault\n\r", (int)device_id);
-    }
-    if ((rxData[0] & 0x10000) != 0) {
-        printf("motor%d:A-phase current sampling overcurrent\n\r", (int)device_id);
-    }
-    if ((rxData[4] & 0x01) != 0) {
-        printf("motor%d:Motor over temperature warning\n\r", (int)device_id);
-    }
+    __set_PRIMASK(primask);
 }
 
 void Robstride_fb_init(Robstride_DeviceInfo *const device_info) {
+    robstride_registered_device[device_info->device_id] = 1U;
+
     if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) {
         robstride_fb_data_global[device_info->device_id].plus_minus = -1;
     } else {
