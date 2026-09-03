@@ -1,6 +1,9 @@
 #ifndef CAN_DEVICES_H
 #define CAN_DEVICES_H
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "CAN_RoboMas.h"
 #include "CAN_Robstride.h"
 #include "CAN_Main.h"
@@ -17,7 +20,7 @@
 #define ROBSTRIDE_DEVICE_0_TYPE Robstride_02
 #define ROBSTRIDE_DEVICE_0_ID   2U
 #define ROBSTRIDE_DEVICE_1_TYPE Robstride_05_Edu
-#define ROBSTRIDE_DEVICE_1_ID   1U
+#define ROBSTRIDE_DEVICE_1_ID   127U
 
 /* C は長さ 0 の配列を標準では許可しないため、未接続時も最小領域を確保する。 */
 #define ROBOMAS_C610_DEVICE_0_ID 4U
@@ -39,5 +42,15 @@ extern float feedback_offset[ROBSTRIDE_DEVICE_STORAGE_COUNT];
 void CanDevices_Init(CAN_HandleTypeDef *robomas_can,
                      CAN_HandleTypeDef *robstride_can,
                      DelayFunction_t delay_function);
+
+/* 接続待ちをスケジューラ開始前の処理から分離する。 */
+void CanDevices_InitBeforeWait(CAN_HandleTypeDef *robomas_can,
+                               CAN_HandleTypeDef *robstride_can,
+                               DelayFunction_t delay_function);
+void CanDevices_InitAfterWait(DelayFunction_t delay_function);
+
+bool CanDevices_IsPrepared(void);
+bool CanDevices_IsInitialized(void);
+Robstride_FeedbackData CanDevices_GetRobstrideFeedback(uint32_t index);
 
 #endif /* CAN_DEVICES_H */

@@ -461,6 +461,13 @@ static void parameter_service_callback(const void *request_msg,
     return;
   }
 
+  /* Robstrideの接続待ち・初期設定中はサービス操作を受け付けない。 */
+  if (target_type == MICROROS_TARGET_ROBSTRIDE &&
+      !CanDevices_IsInitialized()) {
+    set_parameter_response(response, false, "motor initialization in progress");
+    return;
+  }
+
   if (is_mode) {
     uint8_t mode;
     if (!parse_mode_data(request->data, &mode)) {
@@ -930,15 +937,16 @@ static void set_robstride_feedback(
     uint32_t index)
 {
   const Robstride_DeviceInfo *device = &robstride_dev_info_global[index];
-  const Robstride_FeedbackData *feedback = &feedback_data[index];
+  const Robstride_FeedbackData feedback =
+      CanDevices_GetRobstrideFeedback(index);
 
   output->info.type = catch26_interface__msg__DeviceInfo__TYPE_ROBSTRIDE;
   output->info.id = device->device_id;
-  output->position = feedback->position;
-  output->velocity = feedback->velocity;
-  output->current = feedback->current;
-  output->state = robstride_state(device, feedback);
-  output->unit_message_code = feedback->get_flag
+  output->position = feedback.position;
+  output->velocity = feedback.velocity;
+  output->current = feedback.current;
+  output->state = robstride_state(device, &feedback);
+  output->unit_message_code = feedback.get_flag
                                   ? catch26_interface__msg__UrosF7MotorUnitFeedback__CODE_NORMAL
                                   : catch26_interface__msg__UrosF7MotorUnitFeedback__CODE_DISCONNECTION;
 }
@@ -983,7 +991,8 @@ static void feedback_timer_callback(rcl_timer_t *timer, int64_t last_call_time)
       break;
     }
     set_robstride_feedback(&feedback_msg.feedback.data[feedback_count], i);
-    all_connected = all_connected && (feedback_data[i].get_flag != 0U);
+    all_connected = all_connected &&
+                    (CanDevices_GetRobstrideFeedback(i).get_flag != 0U);
     ++feedback_count;
   }
 
@@ -1022,12 +1031,14 @@ static void wait_for_network(void)
     osDelay(100U);
     HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_7);
   }
+  printf("F7 Ethernet IP configured\r\n");
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_SET);
 
   while (!netif_is_link_up(&gnetif)) {
     osDelay(1000U);
     HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
   }
+  printf("F7 Ethernet link up\r\n");
 }
 
 static bool initialize_messages(void)
@@ -1077,6 +1088,7 @@ void MicroRosTask_Run(void)
 {
   printf("Start Micro-ROS Task\r\n");
   wait_for_network();
+  printf("micro-ROS waiting for agent at %s:8888\r\n", MICROROS_AGENT_IP);
 
   for (;;) {
     rmw_uros_set_custom_transport(

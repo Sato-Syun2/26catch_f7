@@ -175,7 +175,8 @@ int main(void)
   MX_CAN3_Init();
   /* USER CODE BEGIN 2 */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_SET); // LD3 (RED) -> ON
-  CanDevices_Init(&hcan2, &hcan3, HAL_Delay);
+  /* 接続待ちはスケジューラ開始後に実行し、Agent起動を止めない。 */
+  CanDevices_InitBeforeWait(&hcan2, &hcan3, HAL_Delay);
 
 
   /* USER CODE END 2 */
