@@ -70,6 +70,13 @@ osThreadId RobomasTaskHandle;
 uint32_t RobomasTaskBuffer[256];
 osStaticThreadDef_t RobomasTaskControlBlock;
 
+/*
+ * MX_LWIP_Init() creates the Ethernet/LwIP objects and enables the ETH
+ * receive path. Keep motor post-initialization behind this barrier so a
+ * link-up packet cannot arrive while the CAN device tasks are starting.
+ */
+static volatile bool ethernet_init_complete = false;
+
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 /* USER CODE END FunctionPrototypes */
@@ -140,6 +147,7 @@ void vApplicationGetTimerTaskMemory(StaticTask_t **ppxTimerTaskTCBBuffer,
 void MX_FREERTOS_Init(void)
 {
   /* USER CODE BEGIN Init */
+  ethernet_init_complete = false;
   /* USER CODE END Init */
 
   /* USER CODE BEGIN RTOS_MUTEX */
@@ -189,7 +197,8 @@ void MX_FREERTOS_Init(void)
 
   osThreadStaticDef(RobomasTask,
                     StartRobomasTask,
-                    osPriorityIdle,
+                    /* Motor control must not be starved by Ethernet traffic. */
+                    osPriorityAboveNormal,
                     0,
                     256,
                     RobomasTaskBuffer,
@@ -210,10 +219,16 @@ void MX_FREERTOS_Init(void)
 /* USER CODE END Header_StartMROSTask */
 void StartMROSTask(void const *argument)
 {
+  (void)argument;
+
   /* init code for LWIP */
   MX_LWIP_Init();
+
+  /* Publish the barrier only after all LwIP/ETH objects have been created. */
+  __DMB();
+  ethernet_init_complete = true;
+
   /* USER CODE BEGIN StartMROSTask */
-  (void)argument;
   MicroRosTask_Run();
   /* USER CODE END StartMROSTask */
 }
@@ -230,7 +245,12 @@ void StartCanDevicesTask(void const *argument)
 {
   /* USER CODE BEGIN StartCanDevicesTask */
   (void)argument;
-  /* Yield during the blocking connection wait so Ethernet can progress. */
+
+  /* Do not overlap CAN motor setup with LwIP/ETH creation. */
+  while (!ethernet_init_complete) {
+    osDelay(10U);
+  }
+
   CanDevices_InitAfterWait(CanDevices_RtosDelay);
   for (;;) {
     osDelay(1000U);
@@ -330,6 +350,15 @@ void StartRobomasTask(void const *argument)
 {
   /* USER CODE BEGIN StartRobomasTask */
   (void)argument;
+
+  /*
+   * Ethernet initialization and its first link-up traffic must settle before
+   * calibration can enable a motor. This is a one-way startup barrier; the
+   * control loop does not depend on ROS being connected afterward.
+   */
+  while (!ethernet_init_complete) {
+    osDelay(10U);
+  }
 
   /* CAN2 feedback is independent of the Robstride connection wait. */
   while (!CanDevices_IsPrepared()) {
