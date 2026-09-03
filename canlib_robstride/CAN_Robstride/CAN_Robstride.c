@@ -8,8 +8,13 @@
 #include <robstride_constant.h>
 #include <Robstride_Control.h>
 
+#include <stdbool.h>
 #include <math.h>  // 数学関数 (fabsf, fmaxf, fminf など) を使用するためにインクルード
 #include <stdio.h> // 標準入出力関数 (printf など) を使用するためにインクルード
+
+#define ROBSTRIDE_SERVICE_TIMEOUT_MS       (300U)
+#define ROBSTRIDE_SERVICE_RESPONSE_WINDOW_MS (10U)
+#define ROBSTRIDE_PARAMETER_TOLERANCE     (0.0005f)
 
 // Private Function Prototypes --------------------------------
 
@@ -19,6 +24,32 @@ static void Robstride_Ctrl_Struct_init(Robstride_Ctrl_StructTypedef *ctrl_struct
 // static void Print_CAN_BitTiming_Params(CAN_HandleTypeDef *hcan);
 static uint8_t Robstride_get_switch_state(GPIO_TypeDef *limit_port, uint32_t limit_pin, ROBSTRIDE_SWITCH_TYPE sw_type);
 static void Robstride_SetMechposToZero(Robstride_DeviceInfo *dev_info, DelayFunction_t f_delay);
+static bool robstride_deadline_reached(uint32_t start_tick, uint32_t timeout_ms);
+static bool robstride_wait_for_feedback(Robstride_DeviceInfo *dev_info,
+                                        uint32_t sequence_before,
+                                        uint32_t start_tick,
+                                        DelayFunction_t f_delay);
+static bool robstride_wait_for_parameter(Robstride_DeviceInfo *dev_info,
+                                         uint16_t address,
+                                         uint32_t sequence_before,
+                                         uint32_t start_tick,
+                                         DelayFunction_t f_delay);
+static bool robstride_target_parameter(const Robstride_DeviceInfo *device_info,
+                                       float target_value,
+                                       uint16_t *address,
+                                       float *wire_value);
+static bool robstride_write_int_verified(Robstride_DeviceInfo *device_info,
+                                         uint16_t address,
+                                         int value,
+                                         uint8_t expected_value,
+                                         DelayFunction_t f_delay);
+static bool robstride_set_target_verified(Robstride_DeviceInfo *device_info,
+                                          float target_value,
+                                          DelayFunction_t f_delay);
+static bool robstride_control_command_verified(Robstride_DeviceInfo *device_info,
+                                                uint8_t command_id,
+                                                uint8_t expected_state,
+                                                DelayFunction_t f_delay);
 
 // Functions --------------------------------
 
@@ -60,6 +91,204 @@ void Robstride_Init(Robstride_DeviceInfo dev_info_array[], const uint8_t size) {
     for (uint8_t i = 0; i < size; i++) {
         Robstride_Ctrl_Struct_init(&(dev_info_array[i].ctrl_param)); // 各デバイスの制御構造体を初期化
     }
+}
+
+static bool robstride_deadline_reached(const uint32_t start_tick,
+                                       const uint32_t timeout_ms)
+{
+    return ((uint32_t)(HAL_GetTick() - start_tick) >= timeout_ms);
+}
+
+static bool robstride_wait_for_feedback(Robstride_DeviceInfo *const dev_info,
+                                        const uint32_t sequence_before,
+                                        const uint32_t start_tick,
+                                        DelayFunction_t f_delay)
+{
+    while (!robstride_deadline_reached(start_tick,
+                                       ROBSTRIDE_SERVICE_RESPONSE_WINDOW_MS)) {
+        f_delay(1U);
+        if (Robstride_GetFeedbackSequence(dev_info) != sequence_before) {
+            return true;
+        }
+    }
+    return Robstride_GetFeedbackSequence(dev_info) != sequence_before;
+}
+
+static bool robstride_wait_for_parameter(Robstride_DeviceInfo *const dev_info,
+                                         const uint16_t address,
+                                         const uint32_t sequence_before,
+                                         const uint32_t start_tick,
+                                         DelayFunction_t f_delay)
+{
+    while (!robstride_deadline_reached(start_tick,
+                                       ROBSTRIDE_SERVICE_RESPONSE_WINDOW_MS)) {
+        f_delay(1U);
+        if (Robstride_GetParameterSequence(dev_info, address) != sequence_before) {
+            return true;
+        }
+    }
+    return Robstride_GetParameterSequence(dev_info, address) != sequence_before;
+}
+
+static bool robstride_target_parameter(const Robstride_DeviceInfo *const device_info,
+                                       const float target_value,
+                                       uint16_t *const address,
+                                       float *const wire_value)
+{
+    if (!isfinite(target_value) ||
+        !isfinite(device_info->ctrl_param.quant_per_rot) ||
+        device_info->ctrl_param.quant_per_rot <= 0.0f) {
+        return false;
+    }
+
+    float value = target_value;
+    switch (device_info->ctrl_param.ctrl_type) {
+        case ROBSTRIDE_CTRL_POS:
+            value -= device_info->ctrl_param.offset_pos;
+            *address = (uint16_t)ADDR_LOC_REF;
+            value /= device_info->ctrl_param.quant_per_rot;
+            if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) {
+                value *= -1.0f;
+            }
+            break;
+        case ROBSTRIDE_CTRL_VEL:
+            *address = (uint16_t)ADDR_SPEED_REF;
+            value /= device_info->ctrl_param.quant_per_rot;
+            if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) {
+                value *= -1.0f;
+            }
+            break;
+        case ROBSTRIDE_CTRL_CURRENT:
+            *address = (uint16_t)ADDR_IQ_REF;
+            if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) {
+                value *= -1.0f;
+            }
+            break;
+        default:
+            return false;
+    }
+
+    *wire_value = value;
+    return isfinite(value);
+}
+
+static float robstride_cached_parameter(const Robstride_FeedbackData *const feedback,
+                                        const uint16_t address)
+{
+    switch (address) {
+        case ADDR_IQ_REF:
+            return feedback->iq_ref;
+        case ADDR_SPEED_REF:
+            return feedback->spd_ref;
+        case ADDR_LOC_REF:
+            return feedback->loc_ref;
+        default:
+            return NAN;
+    }
+}
+
+static bool robstride_write_int_verified(Robstride_DeviceInfo *const device_info,
+                                         const uint16_t address,
+                                         const int value,
+                                         const uint8_t expected_value,
+                                         DelayFunction_t f_delay)
+{
+    bool success = false;
+    const uint32_t transaction_start = HAL_GetTick();
+    uint8_t expected_data = expected_value;
+
+    Robstride_BeginPriorityTransaction(device_info->phcan);
+    while (!robstride_deadline_reached(transaction_start,
+                                       ROBSTRIDE_SERVICE_TIMEOUT_MS)) {
+        Robstride_ClearPriorityTxQueue(device_info->phcan);
+
+        const uint32_t feedback_sequence =
+            Robstride_GetFeedbackSequence(device_info);
+        if (Robstride_WriteIntDataPriority(device_info, address, value) == HAL_OK &&
+            robstride_wait_for_feedback(device_info,
+                                        feedback_sequence,
+                                        HAL_GetTick(),
+                                        f_delay)) {
+            const uint32_t parameter_sequence =
+                Robstride_GetParameterSequence(device_info, address);
+            if (Robstride_RequestReadParameterPriority(device_info, address) == HAL_OK &&
+                robstride_wait_for_parameter(device_info,
+                                             address,
+                                             parameter_sequence,
+                                             HAL_GetTick(),
+                                             f_delay)) {
+                const Robstride_FeedbackData feedback =
+                    Read_Robstride_FeedbackData(device_info);
+                if (address == ADDR_RUN_MODE &&
+                    feedback.run_mode == expected_data) {
+                    success = true;
+                    break;
+                }
+            }
+        }
+        f_delay(1U);
+    }
+
+    Robstride_ClearPriorityTxQueue(device_info->phcan);
+    Robstride_EndPriorityTransaction(device_info->phcan);
+    return success;
+}
+
+static bool robstride_control_command_verified(Robstride_DeviceInfo *const device_info,
+                                                const uint8_t command_id,
+                                                const uint8_t expected_state,
+                                                DelayFunction_t f_delay)
+{
+    bool success = false;
+    const uint32_t transaction_start = HAL_GetTick();
+    const uint8_t data[8] = {0U};
+
+    Robstride_BeginPriorityTransaction(device_info->phcan);
+    while (!robstride_deadline_reached(transaction_start,
+                                       ROBSTRIDE_SERVICE_TIMEOUT_MS)) {
+        Robstride_ClearPriorityTxQueue(device_info->phcan);
+
+        const uint32_t feedback_sequence =
+            Robstride_GetFeedbackSequence(device_info);
+        if (Robstride_SendPriorityBytes(device_info->phcan,
+                                        device_info->device_id,
+                                        command_id,
+                                        device_info->master_id,
+                                        data,
+                                        sizeof(data)) == HAL_OK &&
+            robstride_wait_for_feedback(device_info,
+                                        feedback_sequence,
+                                        HAL_GetTick(),
+                                        f_delay)) {
+            const Robstride_FeedbackData feedback =
+                Read_Robstride_FeedbackData(device_info);
+            if (feedback.mode_status == expected_state) {
+                /* Type 2 has no request/response token.  Follow it with a
+                 * service-only Type 17 read and require the echoed parameter
+                 * response, so a normal Type 1 -> Type 2 cannot complete the
+                 * transaction by itself. */
+                const uint32_t parameter_sequence =
+                    Robstride_GetParameterSequence(device_info, ADDR_RUN_MODE);
+                if (Robstride_RequestReadParameterPriority(device_info,
+                                                           ADDR_RUN_MODE) == HAL_OK &&
+                    robstride_wait_for_parameter(device_info,
+                                                 ADDR_RUN_MODE,
+                                                 parameter_sequence,
+                                                 HAL_GetTick(),
+                                                 f_delay) &&
+                    Read_Robstride_FeedbackData(device_info).run_mode <=
+                        (uint8_t)ROBSTRIDE_CTRL_CURRENT) {
+                    success = true;
+                    break;
+                }
+            }
+        }
+        f_delay(1U);
+    }
+
+    Robstride_ClearPriorityTxQueue(device_info->phcan);
+    Robstride_EndPriorityTransaction(device_info->phcan);
+    return success;
 }
 
 void Robstride_WaitForConnect(Robstride_DeviceInfo dev_info_array[], const uint8_t size, DelayFunction_t f_delay) {
@@ -518,10 +747,19 @@ void Robstride_SetControl(Robstride_DeviceInfo *const dev_info, const ROBSTRIDE_
      * ctrl_type は設定値であり、モーター側の現在値ではない。起動時には
      * 同じ値でも必ず CAN 経由で書き込んで、電源投入直後のモーターへ反映する。
      */
-    Robstride_ControlDisable(dev_info, f_delay);                              // control_disable時のみ制御モードが変更可能
+    if (!Robstride_ControlDisable(dev_info, f_delay)) {                       // control_disable時のみ制御モードが変更可能
+        return;
+    }
     dev_info->ctrl_param.ctrl_type = new_ctrl_type;                           // 新しい制御モードを設定
-    Robstride_WriteIntData(dev_info, ADDR_RUN_MODE, (uint16_t)new_ctrl_type); // 実行モード (制御モード) を書き込み
-    Robstride_ControlEnable(dev_info, f_delay);                               // モータ制御を有効化
+    if (!robstride_write_int_verified(dev_info,
+                                      ADDR_RUN_MODE,
+                                      (uint16_t)new_ctrl_type,
+                                      (uint8_t)new_ctrl_type,
+                                      f_delay)) {
+        dev_info->ctrl_param._enable_flag = 0U;
+        return;
+    }
+    (void)Robstride_ControlEnable(dev_info, f_delay);                         // モータ制御を有効化
 }
 
 /**
@@ -532,15 +770,16 @@ void Robstride_SetControl(Robstride_DeviceInfo *const dev_info, const ROBSTRIDE_
  */
 void Robstride_ChangeControl(Robstride_DeviceInfo *const dev_info, const ROBSTRIDE_CTRL_TYPE new_ctrl_type, DelayFunction_t f_delay) {
     Robstride_Ctrl_Struct_init(&(dev_info->ctrl_param)); // 制御パラメータ構造体を初期化 (PIDパラメータなども初期値に戻る)
+    if (!Robstride_ControlDisable(dev_info, f_delay)) {  // control_disable時のみ制御モードが変更可能
+        return;
+    }
     dev_info->ctrl_param.ctrl_type = new_ctrl_type;      // 新しい制御モードを設定
-    Robstride_ControlDisable(dev_info, f_delay);         // control_disable時のみ制御モードが変更可能
-    while (1) {
-        Robstride_WriteIntData(dev_info, ADDR_RUN_MODE, (uint16_t)new_ctrl_type);        // 実行モード (制御モード) を書き込み
-        f_delay(1);                                                                      // 書き込み後に少し待機
-        Robstride_RequestReadParameter(dev_info, ADDR_RUN_MODE);                         // 書き込み後に読み出し要求を送信して、設定が反映されたか確認
-        if (Read_Robstride_FeedbackData(dev_info).run_mode == (uint16_t)new_ctrl_type) { // 設定が反映されたか確認
-            break;                                                                       // 反映されたらループを抜ける
-        }
+    if (!robstride_write_int_verified(dev_info,
+                                      ADDR_RUN_MODE,
+                                      (uint16_t)new_ctrl_type,
+                                      (uint8_t)new_ctrl_type,
+                                      f_delay)) {
+        dev_info->ctrl_param._enable_flag = 0U;
     }
 }
 
@@ -550,40 +789,92 @@ void Robstride_ChangeControl(Robstride_DeviceInfo *const dev_info, const ROBSTRI
  * @param target_value 設定する目標値
  * @retval なし
  */
-void Robstride_SetTarget(Robstride_DeviceInfo *const device_info, const float target_value) {
-    device_info->ctrl_param._target_value = target_value; // 内部の目標値を更新
-    float value = device_info->ctrl_param._target_value;  // 送信する値を準備
-    uint16_t address;                                     // 送信先アドレス
+static HAL_StatusTypeDef robstride_set_target_internal(
+    Robstride_DeviceInfo *const device_info,
+    const float target_value,
+    const bool priority)
+{
+    uint16_t address;
+    float wire_value;
 
-    switch (device_info->ctrl_param.ctrl_type) {                        // 現在の制御モードに応じて処理を分岐
-        case ROBSTRIDE_CTRL_POS:                                        // 位置制御モードの場合
-            value -= device_info->ctrl_param.offset_pos;                // 位置オフセットを適用
-            address = (uint16_t)ADDR_LOC_REF;                           // 位置指令アドレス
-            value /= device_info->ctrl_param.quant_per_rot;             // 単位を回転量に変換 (例: 度から回転数へ)
-            if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) { // 回転方向が時計回り(CW)の場合
-                value *= -1;                                            // 指令値を反転
-            }
-            break;
-        case ROBSTRIDE_CTRL_VEL:                                        // 速度制御モードの場合
-            address = (uint16_t)ADDR_SPEED_REF;                         // 速度指令アドレス
-            value /= device_info->ctrl_param.quant_per_rot;             // 単位を回転量/sに変換 (例: 度/sから回転数/sへ)
-            if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) { // 回転方向が時計回り(CW)の場合
-                value *= -1;                                            // 指令値を反転
-            }
-            break;
-        case ROBSTRIDE_CTRL_CURRENT:                                    // 電流制御モードの場合
-            address = (uint16_t)ADDR_IQ_REF;                            // Iq電流指令アドレス
-            if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) { // 回転方向が時計回り(CW)の場合
-                value *= -1;                                            // 指令値を反転
-            }
-            break;
-        case ROBSTRIDE_CTRL_OPERATION: // オペレーションモード (特殊なモード、詳細不明) の場合
-            return;                    // 何もせずに終了
-        default:                       // その他の制御モードの場合
-            return;                    // 何もせずに終了
+    device_info->ctrl_param._target_value = target_value;
+    if (!robstride_target_parameter(device_info,
+                                    target_value,
+                                    &address,
+                                    &wire_value)) {
+        return HAL_ERROR;
     }
-    Robstride_WriteFloatData(device_info, address, value); // 計算された指令値を書き込み
-    return;
+
+    if (priority) {
+        return Robstride_WriteFloatDataPriority(device_info,
+                                                address,
+                                                wire_value);
+    }
+
+    Robstride_WriteFloatData(device_info, address, wire_value);
+    return HAL_OK;
+}
+
+void Robstride_SetTarget(Robstride_DeviceInfo *const device_info, const float target_value) {
+    (void)robstride_set_target_internal(device_info, target_value, false);
+}
+
+static bool robstride_set_target_verified(Robstride_DeviceInfo *const device_info,
+                                          const float target_value,
+                                          DelayFunction_t f_delay)
+{
+    uint16_t address;
+    float wire_value;
+    bool success = false;
+    const uint32_t transaction_start = HAL_GetTick();
+
+    if (!robstride_target_parameter(device_info,
+                                    target_value,
+                                    &address,
+                                    &wire_value)) {
+        return false;
+    }
+    device_info->ctrl_param._target_value = target_value;
+
+    Robstride_BeginPriorityTransaction(device_info->phcan);
+    while (!robstride_deadline_reached(transaction_start,
+                                       ROBSTRIDE_SERVICE_TIMEOUT_MS)) {
+        Robstride_ClearPriorityTxQueue(device_info->phcan);
+
+        const uint32_t feedback_sequence =
+            Robstride_GetFeedbackSequence(device_info);
+        if (Robstride_WriteFloatDataPriority(device_info,
+                                             address,
+                                             wire_value) == HAL_OK &&
+            robstride_wait_for_feedback(device_info,
+                                        feedback_sequence,
+                                        HAL_GetTick(),
+                                        f_delay)) {
+            const uint32_t parameter_sequence =
+                Robstride_GetParameterSequence(device_info, address);
+            if (Robstride_RequestReadParameterPriority(device_info, address) == HAL_OK &&
+                robstride_wait_for_parameter(device_info,
+                                             address,
+                                             parameter_sequence,
+                                             HAL_GetTick(),
+                                             f_delay)) {
+                const Robstride_FeedbackData feedback =
+                    Read_Robstride_FeedbackData(device_info);
+                const float applied = robstride_cached_parameter(&feedback,
+                                                                 address);
+                if (isfinite(applied) &&
+                    fabsf(applied - wire_value) <= ROBSTRIDE_PARAMETER_TOLERANCE) {
+                    success = true;
+                    break;
+                }
+            }
+        }
+        f_delay(1U);
+    }
+
+    Robstride_ClearPriorityTxQueue(device_info->phcan);
+    Robstride_EndPriorityTransaction(device_info->phcan);
+    return success;
 }
 
 /**
@@ -591,17 +882,14 @@ void Robstride_SetTarget(Robstride_DeviceInfo *const device_info, const float ta
  * @param dev_info Robstrideデバイス情報構造体へのポインタ
  * @retval なし
  */
-void Robstride_ControlEnable(Robstride_DeviceInfo *const dev_info, DelayFunction_t f_delay) {
-    uint8_t data[8] = { 0x00 }; // 送信するデータ配列を初期化 (内容はCMD_ENABLEでは使用されないことが多いが、形式として送信)
-    // CANメッセージを送信 (CMD_ENABLE コマンド)
-    while (1) {
-        Robstride_SendBytes(dev_info->phcan, dev_info->device_id, CMD_ENABLE, dev_info->master_id, (uint8_t *)data, sizeof(data));
-        f_delay(1);                                                                        // 書き込み後に少し待機
-        if (Read_Robstride_FeedbackData(dev_info).mode_status == ROBSTRIDE_STATE_ENABLE) { // モータが有効になったか確認
-            break;                                                                         // 有効になったらループを抜ける
-        }
-    }
-    dev_info->ctrl_param._enable_flag = 1; // 有効フラグを立てる
+uint8_t Robstride_ControlEnable(Robstride_DeviceInfo *const dev_info, DelayFunction_t f_delay) {
+    const uint8_t success = robstride_control_command_verified(
+        dev_info,
+        CMD_ENABLE,
+        ROBSTRIDE_STATE_ENABLE,
+        f_delay);
+    dev_info->ctrl_param._enable_flag = (success != 0U) ? 1U : 0U;
+    return success;
 }
 
 /**
@@ -609,17 +897,74 @@ void Robstride_ControlEnable(Robstride_DeviceInfo *const dev_info, DelayFunction
  * @param dev_info Robstrideデバイス情報構造体へのポインタ
  * @retval なし
  */
-void Robstride_ControlDisable(Robstride_DeviceInfo *const dev_info, DelayFunction_t f_delay) {
-    uint8_t data[8] = { 0x00 }; // 送信するデータ配列を初期化 (内容はCMD_RESETでは使用されないことが多いが、形式として送信)
-    // CANメッセージを送信 (CMD_RESET コマンド)
-    while (1) {
-        Robstride_SendBytes(dev_info->phcan, dev_info->device_id, CMD_RESET, dev_info->master_id, (uint8_t *)data, sizeof(data));
-        f_delay(1);                                                                         // 書き込み後に少し待機
-        if (Read_Robstride_FeedbackData(dev_info).mode_status == ROBSTRIDE_STATE_DISABLE) { // モータが無効になったか確認
-            break;                                                                          // 無効になったらループを抜ける
-        }
+uint8_t Robstride_ControlDisable(Robstride_DeviceInfo *const dev_info, DelayFunction_t f_delay) {
+    const uint8_t success = robstride_control_command_verified(
+        dev_info,
+        CMD_RESET,
+        ROBSTRIDE_STATE_DISABLE,
+        f_delay);
+    /* タイムアウト時も以後の目標値送信を止める。 */
+    dev_info->ctrl_param._enable_flag = 0U;
+    return success;
+}
+
+uint8_t Robstride_ServiceChangeControl(Robstride_DeviceInfo *const dev_info,
+                                       const ROBSTRIDE_CTRL_TYPE new_ctrl_type,
+                                       DelayFunction_t f_delay)
+{
+    if (new_ctrl_type < ROBSTRIDE_CTRL_POS ||
+        new_ctrl_type > ROBSTRIDE_CTRL_CURRENT) {
+        return 0U;
     }
-    dev_info->ctrl_param._enable_flag = 0; // 有効フラグを降ろす
+
+    /* Preserve the state before ControlDisable clears the software flag. */
+    const bool was_enabled =
+        (dev_info->ctrl_param._enable_flag != 0U) &&
+        (Read_Robstride_FeedbackData(dev_info).mode_status == ROBSTRIDE_STATE_ENABLE);
+    const float hold_position = Read_Robstride_FeedbackData(dev_info).position;
+    uint8_t success = 0U;
+
+    /* Keep latest-value Type 1 and periodic Get traffic fenced out for the
+     * complete multi-step mode transaction, not only for each individual
+     * CAN request.  The nested service helpers share this transaction. */
+    Robstride_BeginPriorityTransaction(dev_info->phcan);
+    if (!Robstride_ControlDisable(dev_info, f_delay)) {
+        goto service_complete;
+    }
+
+    dev_info->ctrl_param.ctrl_type = new_ctrl_type;
+    const float safe_target = (new_ctrl_type == ROBSTRIDE_CTRL_POS)
+                                  ? hold_position
+                                  : 0.0f;
+
+    /* Type 18 has only a Type 2 response, so the write is followed by a
+     * Type 17 read of 0x7005 and an exact value check. */
+    if (!robstride_write_int_verified(dev_info,
+                                      ADDR_RUN_MODE,
+                                      (uint16_t)new_ctrl_type,
+                                      (uint8_t)new_ctrl_type,
+                                      f_delay)) {
+        dev_info->ctrl_param._enable_flag = 0U;
+        goto service_complete;
+    }
+
+    /* Establish a known zero/hold reference before a possible re-enable and
+     * verify the actual parameter response, not just the Type 2 status. */
+    if (!robstride_set_target_verified(dev_info, safe_target, f_delay)) {
+        dev_info->ctrl_param._enable_flag = 0U;
+        goto service_complete;
+    }
+
+    if (was_enabled && !Robstride_ControlEnable(dev_info, f_delay)) {
+        dev_info->ctrl_param._enable_flag = 0U;
+        goto service_complete;
+    }
+
+    success = 1U;
+
+service_complete:
+    Robstride_EndPriorityTransaction(dev_info->phcan);
+    return success;
 }
 
 void Robstride_CheckActiveReportStatus(Robstride_DeviceInfo *const device_info) {

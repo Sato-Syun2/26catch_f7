@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
 #include <math.h>
 #include <CAN_Robstride_Def.h>
@@ -16,8 +17,37 @@
 
 CAN_HandleTypeDef *_robstride_phcan_global; // 変更しない事
 CAN_RingBuf_Robstride robstride_can_buf_ring1 = { 0 };
+static CAN_PriorityRingBuf_Robstride robstride_can_priority_buf_ring1 = { 0 };
 robstride_feedback_data_raw _robstride_feedback_data_raw_global[129];
 Robstride_FeedbackData robstride_fb_data_global[129];
+
+/* A Type 2 frame has no command sequence number.  These counters let the
+ * service transaction require a frame received after its own request. */
+static volatile uint32_t robstride_feedback_sequence[129];
+
+typedef struct {
+    volatile uint32_t run_mode;
+    volatile uint32_t iq_ref;
+    volatile uint32_t speed_ref;
+    volatile uint32_t loc_ref;
+} RobstrideParameterSequence;
+
+static RobstrideParameterSequence robstride_parameter_sequence[129];
+
+/* Type 17 replies carry the destination master ID in the low byte of the
+ * extended ID.  Remember the master ID configured for each motor so a frame
+ * belonging to another CAN master cannot advance a service wait sequence. */
+static volatile uint8_t robstride_parameter_master_id[129];
+static volatile uint8_t robstride_parameter_master_id_valid[129];
+
+/* While non-zero, normal target/Get frames remain queued and cannot occupy a
+ * newly freed CAN mailbox ahead of a service transaction. */
+static volatile uint8_t robstride_priority_transaction_depth = 0U;
+
+/* Fault frames can be repeated continuously.  Keep the last code per motor so
+ * a persistent fault cannot flood the serial link and starve micro-ROS. */
+static uint32_t robstride_last_fault_code[129];
+static uint32_t robstride_last_warning_code[129];
 
 /*
  * Runtime diagnostics.  They are incremented from both task and CAN ISR
@@ -25,6 +55,7 @@ Robstride_FeedbackData robstride_fb_data_global[129];
  */
 static volatile uint32_t robstride_tx_ring_overrun_count = 0U;
 static volatile uint32_t robstride_tx_error_count = 0U;
+static volatile uint32_t robstride_priority_queue_full_count = 0U;
 static volatile uint32_t robstride_can_error_count = 0U;
 static volatile uint32_t robstride_can_error_code = HAL_CAN_ERROR_NONE;
 
@@ -32,8 +63,21 @@ static volatile uint32_t robstride_can_error_code = HAL_CAN_ERROR_NONE;
 
 static float uint_to_float(uint16_t x, float x_min, float x_max);
 static HAL_StatusTypeDef _Robstride_PushTx8Bytes(CAN_RingBuf_Robstride *p_can_ring, uint32_t ExtId, const uint8_t *bytes, uint32_t size);
-static HAL_StatusTypeDef _Robstride_PopSendTx8Bytes(CAN_HandleTypeDef *phcan, CAN_RingBuf_Robstride *p_can_ring);
+static HAL_StatusTypeDef _Robstride_PushPriorityTx8Bytes(CAN_PriorityRingBuf_Robstride *p_can_ring, uint32_t ExtId, const uint8_t *bytes, uint32_t size);
+static HAL_StatusTypeDef _Robstride_PopSendTx8Bytes(CAN_HandleTypeDef *phcan);
 static void Robstride_set_fb_data_raw(uint32_t ExtID, const uint8_t rxData[], uint8_t device_id);
+static bool _Robstride_RingHasData(uint32_t read_point, uint32_t write_point, uint8_t is_full);
+static void _Robstride_ClearPriorityRing(void);
+static void _Robstride_ClearNormalRing(void);
+static void _Robstride_DiscardPendingRx(CAN_HandleTypeDef *phcan);
+static void _Robstride_RegisterParameterMasterId(const Robstride_DeviceInfo *device_info);
+static HAL_StatusTypeDef _Robstride_SendBytesToQueue(CAN_HandleTypeDef *phcan,
+                                                       uint8_t motor_id,
+                                                       uint8_t cmd_id,
+                                                       uint16_t option,
+                                                       const uint8_t *bytes,
+                                                       uint32_t size,
+                                                       bool priority);
 
 static uint32_t robstride_take_counter(volatile uint32_t *counter)
 {
@@ -90,7 +134,42 @@ static HAL_StatusTypeDef _Robstride_PushTx8Bytes(CAN_RingBuf_Robstride *const p_
     return HAL_OK;
 }
 
-static HAL_StatusTypeDef _Robstride_PopSendTx8Bytes(CAN_HandleTypeDef *const phcan, CAN_RingBuf_Robstride *const p_can_ring) {
+static HAL_StatusTypeDef _Robstride_PushPriorityTx8Bytes(CAN_PriorityRingBuf_Robstride *const p_can_ring,
+                                                          const uint32_t ExtId,
+                                                          const uint8_t *const bytes,
+                                                          const uint32_t size) {
+    const uint32_t primask = __get_PRIMASK();
+
+    /* Unlike the normal latest-value queue, a service frame is never
+     * overwritten.  The caller must retry when the queue is full. */
+    __disable_irq();
+    if (p_can_ring->is_full != 0U) {
+        ++robstride_priority_queue_full_count;
+        __set_PRIMASK(primask);
+        return HAL_BUSY;
+    }
+
+    p_can_ring->buffer[p_can_ring->write_point].DLC = size;
+    p_can_ring->buffer[p_can_ring->write_point].ExtId = ExtId;
+    for (uint8_t i = 0U; i < size; ++i) {
+        p_can_ring->buffer[p_can_ring->write_point].bytes[i] = bytes[i];
+    }
+    p_can_ring->write_point =
+        (p_can_ring->write_point + 1U) & (CAN_PRIORITY_TXBUFFER_SIZE - 1U);
+    if (p_can_ring->write_point == p_can_ring->read_point) {
+        p_can_ring->is_full = 1U;
+    }
+    __set_PRIMASK(primask);
+    return HAL_OK;
+}
+
+static bool _Robstride_RingHasData(const uint32_t read_point,
+                                   const uint32_t write_point,
+                                   const uint8_t is_full) {
+    return (is_full != 0U) || (read_point != write_point);
+}
+
+static HAL_StatusTypeDef _Robstride_PopSendTx8Bytes(CAN_HandleTypeDef *const phcan) {
     CAN_TxHeaderTypeDef txHeader;
     uint32_t txMailbox;
     HAL_StatusTypeDef result = HAL_OK;
@@ -103,35 +182,254 @@ static HAL_StatusTypeDef _Robstride_PopSendTx8Bytes(CAN_HandleTypeDef *const phc
     /* Keep the ring state consistent with the producer task. */
     __disable_irq();
     while (HAL_CAN_GetTxMailboxesFreeLevel(phcan) > 0) {
-        if ((p_can_ring->is_full == 0) && (p_can_ring->read_point == p_can_ring->write_point)) break;
+        CANTxBuf_Robstride *frame_buffer;
+        uint32_t *read_point;
+        uint8_t *is_full;
+        uint32_t ring_size;
+        bool priority_frame;
 
-        txHeader.DLC = p_can_ring->buffer[p_can_ring->read_point].DLC;
+        /* Always select service traffic first.  During a transaction normal
+         * traffic is held in software so it cannot consume a free mailbox. */
+        if (_Robstride_RingHasData(robstride_can_priority_buf_ring1.read_point,
+                                   robstride_can_priority_buf_ring1.write_point,
+                                   robstride_can_priority_buf_ring1.is_full)) {
+            frame_buffer = robstride_can_priority_buf_ring1.buffer;
+            read_point = &robstride_can_priority_buf_ring1.read_point;
+            is_full = &robstride_can_priority_buf_ring1.is_full;
+            ring_size = CAN_PRIORITY_TXBUFFER_SIZE;
+            priority_frame = true;
+        } else if (robstride_priority_transaction_depth == 0U &&
+                   _Robstride_RingHasData(robstride_can_buf_ring1.read_point,
+                                          robstride_can_buf_ring1.write_point,
+                                          robstride_can_buf_ring1.is_full)) {
+            frame_buffer = robstride_can_buf_ring1.buffer;
+            read_point = &robstride_can_buf_ring1.read_point;
+            is_full = &robstride_can_buf_ring1.is_full;
+            ring_size = CAN_TXBUFFER_SIZE;
+            priority_frame = false;
+        } else {
+            break;
+        }
+
+        txHeader.DLC = frame_buffer[*read_point].DLC;
         txHeader.StdId = 0; // 標準IDは使わない
-        txHeader.ExtId = p_can_ring->buffer[p_can_ring->read_point].ExtId;
+        txHeader.ExtId = frame_buffer[*read_point].ExtId;
 
-        HAL_StatusTypeDef ret = HAL_CAN_AddTxMessage(phcan, &txHeader, p_can_ring->buffer[p_can_ring->read_point].bytes, &txMailbox);
+        HAL_StatusTypeDef ret = HAL_CAN_AddTxMessage(phcan,
+                                                     &txHeader,
+                                                     frame_buffer[*read_point].bytes,
+                                                     &txMailbox);
         if (ret != HAL_OK) {
-            /* A full/error mailbox is recoverable.  Drop this stale frame and
-             * let the next command or TX callback try again. */
             ++robstride_tx_error_count;
-            p_can_ring->read_point = ((p_can_ring->read_point) + 1) & (CAN_TXBUFFER_SIZE - 1);
-            p_can_ring->is_full = 0;
+            /* A service frame must remain pending.  Normal frames are
+             * disposable latest-value traffic and retain the old behavior. */
+            if (!priority_frame) {
+                *read_point = (*read_point + 1U) & (ring_size - 1U);
+                *is_full = 0U;
+            }
             result = ret;
             break;
         }
-        p_can_ring->read_point = ((p_can_ring->read_point) + 1) & (CAN_TXBUFFER_SIZE - 1);
-        p_can_ring->is_full = 0;
+        *read_point = (*read_point + 1U) & (ring_size - 1U);
+        *is_full = 0U;
     }
     __set_PRIMASK(primask);
     return result;
 }
 
+static HAL_StatusTypeDef _Robstride_SendBytesToQueue(CAN_HandleTypeDef *const phcan,
+                                                       const uint8_t motor_id,
+                                                       const uint8_t cmd_id,
+                                                       const uint16_t option,
+                                                       const uint8_t *const bytes,
+                                                       const uint32_t size,
+                                                       const bool priority) {
+    const uint32_t quotient = size / 8U;
+    const uint32_t remainder = size - (8U * quotient);
+    HAL_StatusTypeDef ret;
+    const uint32_t ExtId = ((uint32_t)cmd_id << 24) |
+                           ((uint32_t)option << 8) |
+                           (uint32_t)motor_id;
+
+    for (uint32_t i = 0U; i < quotient; ++i) {
+        ret = priority
+                  ? _Robstride_PushPriorityTx8Bytes(&robstride_can_priority_buf_ring1,
+                                                    ExtId,
+                                                    bytes + i * 8U,
+                                                    8U)
+                  : _Robstride_PushTx8Bytes(&robstride_can_buf_ring1,
+                                            ExtId,
+                                            bytes + i * 8U,
+                                            8U);
+        if (ret != HAL_OK) {
+            return ret;
+        }
+    }
+
+    if (remainder != 0U) {
+        ret = priority
+                  ? _Robstride_PushPriorityTx8Bytes(&robstride_can_priority_buf_ring1,
+                                                    ExtId,
+                                                    bytes + quotient * 8U,
+                                                    remainder)
+                  : _Robstride_PushTx8Bytes(&robstride_can_buf_ring1,
+                                            ExtId,
+                                            bytes + quotient * 8U,
+                                            remainder);
+        if (ret != HAL_OK) {
+            return ret;
+        }
+    }
+
+    /* If no mailbox is free this still returns HAL_OK: the frame is retained
+     * in the appropriate queue and a completion/error interrupt will retry. */
+    return _Robstride_PopSendTx8Bytes(phcan);
+}
+
+static void _Robstride_ClearPriorityRing(void)
+{
+    const uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    robstride_can_priority_buf_ring1.read_point = 0U;
+    robstride_can_priority_buf_ring1.write_point = 0U;
+    robstride_can_priority_buf_ring1.is_full = 0U;
+    __set_PRIMASK(primask);
+}
+
+static void _Robstride_ClearNormalRing(void)
+{
+    const uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    robstride_can_buf_ring1.read_point = 0U;
+    robstride_can_buf_ring1.write_point = 0U;
+    robstride_can_buf_ring1.is_full = 0U;
+    __set_PRIMASK(primask);
+}
+
+static void _Robstride_RegisterParameterMasterId(
+    const Robstride_DeviceInfo *const device_info)
+{
+    if (device_info == NULL || device_info->device_id >= 129U) {
+        return;
+    }
+
+    const uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    robstride_parameter_master_id[device_info->device_id] = device_info->master_id;
+    robstride_parameter_master_id_valid[device_info->device_id] = 1U;
+    __set_PRIMASK(primask);
+}
+
+static void _Robstride_DiscardPendingRx(CAN_HandleTypeDef *const phcan)
+{
+    CAN_RxHeaderTypeDef rx_header;
+    uint8_t rx_data[8];
+    const uint32_t primask = __get_PRIMASK();
+
+    /* A Type 2 response that was already waiting before the transaction must
+     * not satisfy the transaction's fresh-feedback fence. */
+    __disable_irq();
+    while (HAL_CAN_GetRxFifoFillLevel(phcan, CAN_RX_FIFO0) > 0U) {
+        if (HAL_CAN_GetRxMessage(phcan, CAN_RX_FIFO0, &rx_header, rx_data) != HAL_OK) {
+            break;
+        }
+    }
+    while (HAL_CAN_GetRxFifoFillLevel(phcan, CAN_RX_FIFO1) > 0U) {
+        if (HAL_CAN_GetRxMessage(phcan, CAN_RX_FIFO1, &rx_header, rx_data) != HAL_OK) {
+            break;
+        }
+    }
+    __set_PRIMASK(primask);
+}
+
+void Robstride_BeginPriorityTransaction(CAN_HandleTypeDef *const phcan)
+{
+    if (_robstride_phcan_global != phcan) {
+        return;
+    }
+
+    const uint32_t primask = __get_PRIMASK();
+    bool first_transaction;
+    __disable_irq();
+    first_transaction = (robstride_priority_transaction_depth == 0U);
+    if (robstride_priority_transaction_depth < 0xFFU) {
+        ++robstride_priority_transaction_depth;
+    }
+    __set_PRIMASK(primask);
+
+    if (first_transaction) {
+        /* Remove already-loaded normal Type 1/17 frames from the hardware
+         * mailboxes before a service sequence starts.  Also discard old
+         * latest-value frames still queued in software; they must not be
+         * released immediately after a mode/enable service finishes. */
+        _Robstride_ClearNormalRing();
+        _Robstride_ClearPriorityRing();
+        _Robstride_DiscardPendingRx(phcan);
+        (void)HAL_CAN_AbortTxRequest(phcan,
+                                     CAN_TX_MAILBOX0 |
+                                     CAN_TX_MAILBOX1 |
+                                     CAN_TX_MAILBOX2);
+    }
+}
+
+void Robstride_EndPriorityTransaction(CAN_HandleTypeDef *const phcan)
+{
+    if (_robstride_phcan_global != phcan) {
+        return;
+    }
+
+    const uint32_t primask = __get_PRIMASK();
+    bool last_transaction = false;
+    __disable_irq();
+    if (robstride_priority_transaction_depth > 0U) {
+        --robstride_priority_transaction_depth;
+        last_transaction = (robstride_priority_transaction_depth == 0U);
+    }
+    __set_PRIMASK(primask);
+
+    if (last_transaction) {
+        (void)_Robstride_PopSendTx8Bytes(phcan);
+    }
+}
+
+void Robstride_ClearPriorityTxQueue(CAN_HandleTypeDef *const phcan)
+{
+    if (_robstride_phcan_global != phcan) {
+        return;
+    }
+
+    _Robstride_ClearPriorityRing();
+    _Robstride_DiscardPendingRx(phcan);
+    /* A queued high-priority frame may already be in a hardware mailbox.  It
+     * must not appear later after the service has returned failure/success. */
+    (void)HAL_CAN_AbortTxRequest(phcan,
+                                 CAN_TX_MAILBOX0 |
+                                 CAN_TX_MAILBOX1 |
+                                 CAN_TX_MAILBOX2);
+}
+
 void Robstride_RequestReadParameter(Robstride_DeviceInfo *const device_info, const uint16_t address) {
     uint8_t can_data[8];
+    _Robstride_RegisterParameterMasterId(device_info);
     can_data[0] = address & 0x00FF;
     can_data[1] = address >> 8;
     uint16_t option = 0x00 << 8 | device_info->master_id;
-    Robstride_SendBytes(device_info->phcan, device_info->device_id, CMD_RAM_READ, option, (uint8_t *)can_data, sizeof(can_data));
+    (void)Robstride_SendBytes(device_info->phcan, device_info->device_id, CMD_RAM_READ, option, (uint8_t *)can_data, sizeof(can_data));
+}
+
+HAL_StatusTypeDef Robstride_RequestReadParameterPriority(Robstride_DeviceInfo *const device_info,
+                                                          const uint16_t address) {
+    uint8_t can_data[8] = {0U};
+    _Robstride_RegisterParameterMasterId(device_info);
+    can_data[0] = address & 0x00FFU;
+    can_data[1] = (uint8_t)(address >> 8);
+    const uint16_t option = device_info->master_id;
+    return Robstride_SendPriorityBytes(device_info->phcan,
+                                       device_info->device_id,
+                                       CMD_RAM_READ,
+                                       option,
+                                       can_data,
+                                       sizeof(can_data));
 }
 
 void Robstride_WriteFloatData(Robstride_DeviceInfo *const device_info, const uint16_t address, const float data) {
@@ -139,48 +437,76 @@ void Robstride_WriteFloatData(Robstride_DeviceInfo *const device_info, const uin
     can_data[0] = address & 0x00FF;
     can_data[1] = address >> 8;
     memcpy(&can_data[4], &data, 4);
-    Robstride_SendBytes(device_info->phcan, device_info->device_id, CMD_RAM_WRITE, device_info->master_id, (uint8_t *)can_data, sizeof(can_data));
+    (void)Robstride_SendBytes(device_info->phcan, device_info->device_id, CMD_RAM_WRITE, device_info->master_id, (uint8_t *)can_data, sizeof(can_data));
+}
+
+HAL_StatusTypeDef Robstride_WriteFloatDataPriority(Robstride_DeviceInfo *const device_info,
+                                                    const uint16_t address,
+                                                    const float data) {
+    uint8_t can_data[8] = {0U};
+    can_data[0] = address & 0x00FFU;
+    can_data[1] = (uint8_t)(address >> 8);
+    memcpy(&can_data[4], &data, sizeof(data));
+    return Robstride_SendPriorityBytes(device_info->phcan,
+                                       device_info->device_id,
+                                       CMD_RAM_WRITE,
+                                       device_info->master_id,
+                                       can_data,
+                                       sizeof(can_data));
 }
 
 void Robstride_WriteIntData(Robstride_DeviceInfo *const device_info, const uint16_t address, const int data) {
-    uint8_t can_data[8];
+    uint8_t can_data[8] = {0U};
     can_data[0] = address & 0x00FF;
     can_data[1] = address >> 8;
     can_data[4] = (uint8_t)data;
-    Robstride_SendBytes(device_info->phcan, device_info->device_id, CMD_RAM_WRITE, device_info->master_id, (uint8_t *)can_data, sizeof(can_data));
+    (void)Robstride_SendBytes(device_info->phcan, device_info->device_id, CMD_RAM_WRITE, device_info->master_id, (uint8_t *)can_data, sizeof(can_data));
 }
 
-HAL_StatusTypeDef Robstride_SendBytes(CAN_HandleTypeDef *const phcan, const uint8_t motor_id, const uint8_t cmd_id, const uint16_t option, const uint8_t *const bytes, const uint32_t size) { // 命令を送信する関数
-    const uint32_t quotient = size / 8;
-    const uint32_t remainder = size - (8 * quotient);
-    HAL_StatusTypeDef ret;
-    const uint32_t ExtId = cmd_id << 24 | option << 8 | motor_id;
-    for (uint8_t i = 0; i < quotient; i++) {
-        ret = _Robstride_PushTx8Bytes(&robstride_can_buf_ring1, ExtId, bytes + i * 8, 8);
-        if (ret != HAL_OK) {
-            return ret;
-        }
-    }
+HAL_StatusTypeDef Robstride_WriteIntDataPriority(Robstride_DeviceInfo *const device_info,
+                                                  const uint16_t address,
+                                                  const int data) {
+    uint8_t can_data[8] = {0U};
+    can_data[0] = address & 0x00FFU;
+    can_data[1] = (uint8_t)(address >> 8);
+    can_data[4] = (uint8_t)data;
+    return Robstride_SendPriorityBytes(device_info->phcan,
+                                       device_info->device_id,
+                                       CMD_RAM_WRITE,
+                                       device_info->master_id,
+                                       can_data,
+                                       sizeof(can_data));
+}
 
-    if (remainder != 0) {
-        ret = _Robstride_PushTx8Bytes(&robstride_can_buf_ring1, ExtId, bytes + quotient * 8, remainder);
-        if (ret != HAL_OK) {
-            return ret;
-        }
-    }
-    ret = _Robstride_PopSendTx8Bytes(phcan, &robstride_can_buf_ring1);
+HAL_StatusTypeDef Robstride_SendBytes(CAN_HandleTypeDef *const phcan,
+                                      const uint8_t motor_id,
+                                      const uint8_t cmd_id,
+                                      const uint16_t option,
+                                      const uint8_t *const bytes,
+                                      const uint32_t size) {
     /* Runtime CAN congestion must not enter Error_Handler(). */
-    return ret;
+    return _Robstride_SendBytesToQueue(phcan, motor_id, cmd_id, option,
+                                       bytes, size, false);
+}
+
+HAL_StatusTypeDef Robstride_SendPriorityBytes(CAN_HandleTypeDef *const phcan,
+                                               const uint8_t motor_id,
+                                               const uint8_t cmd_id,
+                                               const uint16_t option,
+                                               const uint8_t *const bytes,
+                                               const uint32_t size) {
+    return _Robstride_SendBytesToQueue(phcan, motor_id, cmd_id, option,
+                                       bytes, size, true);
 }
 
 void Robstride_WhenTxMailboxCompleteCallbackCalled(CAN_HandleTypeDef *const phcan) {
     if (_robstride_phcan_global != phcan) return;
-    _Robstride_PopSendTx8Bytes(phcan, &robstride_can_buf_ring1);
+    (void)_Robstride_PopSendTx8Bytes(phcan);
 }
 
 void Robstride_WhenTxMailboxAbortCallbackCalled(CAN_HandleTypeDef *const phcan) {
     if (_robstride_phcan_global != phcan) return;
-    _Robstride_PopSendTx8Bytes(phcan, &robstride_can_buf_ring1);
+    (void)_Robstride_PopSendTx8Bytes(phcan);
 }
 
 void Robstride_WhenCANErrorCallbackCalled(CAN_HandleTypeDef *const phcan)
@@ -194,7 +520,7 @@ void Robstride_WhenCANErrorCallbackCalled(CAN_HandleTypeDef *const phcan)
     __set_PRIMASK(primask);
 
     /* A mailbox may have become available after an aborted/error frame. */
-    (void)_Robstride_PopSendTx8Bytes(phcan, &robstride_can_buf_ring1);
+    (void)_Robstride_PopSendTx8Bytes(phcan);
 }
 
 uint32_t Robstride_TakeTxRingOverrunCount(void)
@@ -205,6 +531,11 @@ uint32_t Robstride_TakeTxRingOverrunCount(void)
 uint32_t Robstride_TakeTxErrorCount(void)
 {
     return robstride_take_counter(&robstride_tx_error_count);
+}
+
+uint32_t Robstride_TakePriorityQueueFullCount(void)
+{
+    return robstride_take_counter(&robstride_priority_queue_full_count);
 }
 
 uint32_t Robstride_TakeCanErrorCount(void)
@@ -231,6 +562,10 @@ void Robstride_SetCANID(Robstride_DeviceInfo *const device_info, const uint8_t n
 }
 
 static void Robstride_set_fb_data_raw(const uint32_t ExtID, const uint8_t rxData[], const uint8_t device_id) {
+    if (device_id >= 129U) {
+        return;
+    }
+
     _robstride_feedback_data_raw_global[device_id]._get_counter += 1;
     if (_robstride_feedback_data_raw_global[device_id]._get_counter > 128) {
         _robstride_feedback_data_raw_global[device_id]._get_counter = 3; // overflow対策
@@ -274,6 +609,7 @@ static void Robstride_set_fb_data_raw(const uint32_t ExtID, const uint8_t rxData
     //           robstride_fb_data_global[device_id].velocity,
     //           robstride_fb_data_global[device_id].torque);
     robstride_fb_data_global[device_id].temperature = (int)((float)(_robstride_feedback_data_raw_global[device_id].temp) / 10.0);
+    ++robstride_feedback_sequence[device_id];
 }
 
 void Robstride_WhenCANRxFifo0MsgPending(CAN_HandleTypeDef *const phcan) {
@@ -299,11 +635,11 @@ void Robstride_WhenCANRxFifo0MsgPending(CAN_HandleTypeDef *const phcan) {
     } else if (ExtId >= 0x11000000 && ExtId <= 0x11007F7F) {
         // uint32_t master_id = (uint8_t)(ExtId & 0xFF);
         motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
-        Robstride_ProcessParameter(rxData, motor_id);
+        Robstride_ProcessParameterFrame(ExtId, rxData, motor_id);
         // printf("response3 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
     } else if (ExtId >= 0x15000000 && ExtId <= 0x15007F7F) {
-        // uint32_t master_id = (uint8_t)((ExtId >> 8)) & 0xFF;
-        motor_id = (uint8_t)(ExtId & 0xFF);
+        // Fault response: motor ID is in bits 8..15; the low byte is master ID.
+        motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
         Robstride_ProcessFault(rxData, motor_id);
         // printf("response4 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
     }
@@ -333,11 +669,11 @@ void Robstride_WhenCANRxFifo1MsgPending(CAN_HandleTypeDef *const phcan) {
     } else if (ExtId >= 0x11000000 && ExtId <= 0x11007F7F) {
         // uint32_t master_id = (uint8_t)(ExtId & 0xFF);
         motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
-        Robstride_ProcessParameter(rxData, motor_id);
+        Robstride_ProcessParameterFrame(ExtId, rxData, motor_id);
         // printf("response3 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
     } else if (ExtId >= 0x15000000 && ExtId <= 0x15007F7F) {
-        // uint32_t master_id = (uint8_t)((ExtId >> 8)) & 0xFF;
-        motor_id = (uint8_t)(ExtId & 0xFF);
+        // Fault response: motor ID is in bits 8..15; the low byte is master ID.
+        motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
         Robstride_ProcessFault(rxData, motor_id);
         // printf("response4 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
     }
@@ -518,6 +854,13 @@ void Init_Robstride_CAN_System(CAN_HandleTypeDef *const phcan) { // CAN初期化
         robstride_fb_data_global[i].torque = 0;
         robstride_fb_data_global[i].temperature = 0;
         robstride_fb_data_global[i].current = 0;
+        robstride_feedback_sequence[i] = 0U;
+        robstride_parameter_sequence[i].run_mode = 0U;
+        robstride_parameter_sequence[i].iq_ref = 0U;
+        robstride_parameter_sequence[i].speed_ref = 0U;
+        robstride_parameter_sequence[i].loc_ref = 0U;
+        robstride_parameter_master_id[i] = 0U;
+        robstride_parameter_master_id_valid[i] = 0U;
     }
 }
 
@@ -556,7 +899,77 @@ Robstride_FeedbackData Read_Robstride_FeedbackData(Robstride_DeviceInfo *const d
     return robstride_fb_data_global[device_id];
 }
 
+uint32_t Robstride_GetFeedbackSequence(const Robstride_DeviceInfo *const device_info)
+{
+    if (device_info == NULL || device_info->device_id >= 129U) {
+        return 0U;
+    }
+
+    const uint32_t primask = __get_PRIMASK();
+    uint32_t sequence;
+    __disable_irq();
+    sequence = robstride_feedback_sequence[device_info->device_id];
+    __set_PRIMASK(primask);
+    return sequence;
+}
+
+uint32_t Robstride_GetParameterSequence(const Robstride_DeviceInfo *const device_info,
+                                        const uint16_t address)
+{
+    if (device_info == NULL || device_info->device_id >= 129U) {
+        return 0U;
+    }
+
+    const uint32_t primask = __get_PRIMASK();
+    uint32_t sequence = 0U;
+    __disable_irq();
+    switch (address) {
+        case ADDR_RUN_MODE:
+            sequence = robstride_parameter_sequence[device_info->device_id].run_mode;
+            break;
+        case ADDR_IQ_REF:
+            sequence = robstride_parameter_sequence[device_info->device_id].iq_ref;
+            break;
+        case ADDR_SPEED_REF:
+            sequence = robstride_parameter_sequence[device_info->device_id].speed_ref;
+            break;
+        case ADDR_LOC_REF:
+            sequence = robstride_parameter_sequence[device_info->device_id].loc_ref;
+            break;
+        default:
+            break;
+    }
+    __set_PRIMASK(primask);
+    return sequence;
+}
+
+void Robstride_ProcessParameterFrame(const uint32_t ExtID,
+                                     const uint8_t rxData[],
+                                     const uint8_t device_id)
+{
+    if (device_id >= 129U) {
+        return;
+    }
+
+    /* For a Type 17 reply, bits 23..16 are the read result: 0 means success,
+     * 1 means the requested parameter could not be read.  Do not update the
+     * cache or wake a service waiter from a failed parameter transaction. */
+    if (((ExtID >> 16) & 0xFFU) != 0U) {
+        return;
+    }
+
+    if (robstride_parameter_master_id_valid[device_id] != 0U &&
+        (uint8_t)(ExtID & 0xFFU) != robstride_parameter_master_id[device_id]) {
+        return;
+    }
+    Robstride_ProcessParameter(rxData, device_id);
+}
+
 void Robstride_ProcessParameter(const uint8_t rxData[], const uint8_t device_id) {
+    if (device_id >= 129U) {
+        return;
+    }
+
     const uint16_t address = rxData[0] | rxData[1] << 8;
     uint8_t uint8_data;
     // int16_t int16_data;
@@ -568,14 +981,17 @@ void Robstride_ProcessParameter(const uint8_t rxData[], const uint8_t device_id)
         case ADDR_RUN_MODE: // 0x7005
             memcpy(&uint8_data, &rxData[4], sizeof(uint8_data));
             robstride_fb_data_global[device_id].run_mode = uint8_data;
+            ++robstride_parameter_sequence[device_id].run_mode;
             break;
         case ADDR_IQ_REF: // 0x7006
             memcpy(&float_data, &rxData[4], sizeof(float_data));
             robstride_fb_data_global[device_id].iq_ref = float_data;
+            ++robstride_parameter_sequence[device_id].iq_ref;
             break;
         case ADDR_SPEED_REF: // 0x700A
             memcpy(&float_data, &rxData[4], sizeof(float_data));
             robstride_fb_data_global[device_id].spd_ref = float_data;
+            ++robstride_parameter_sequence[device_id].speed_ref;
             break;
         case ADDR_LIMIT_TORQUE: // 0x700B
             memcpy(&float_data, &rxData[4], sizeof(float_data));
@@ -596,6 +1012,7 @@ void Robstride_ProcessParameter(const uint8_t rxData[], const uint8_t device_id)
         case ADDR_LOC_REF: // 0x7016
             memcpy(&float_data, &rxData[4], sizeof(float_data));
             robstride_fb_data_global[device_id].loc_ref = float_data;
+            ++robstride_parameter_sequence[device_id].loc_ref;
             break;
         case ADDR_LIMIT_SPEED: // 0x7017
             memcpy(&float_data, &rxData[4], sizeof(float_data));
@@ -690,39 +1107,59 @@ void Robstride_ProcessParameter(const uint8_t rxData[], const uint8_t device_id)
 }
 
 void Robstride_ProcessFault(const uint8_t rxData[], const uint8_t device_id) {
-    if ((rxData[0] & 0x01) != 0) {
+    if (device_id >= 129U) {
+        return;
+    }
+
+    const uint32_t fault_code = ((uint32_t)rxData[0]) |
+                                ((uint32_t)rxData[1] << 8) |
+                                ((uint32_t)rxData[2] << 16) |
+                                ((uint32_t)rxData[3] << 24);
+    const uint32_t warning_code = ((uint32_t)rxData[4]) |
+                                  ((uint32_t)rxData[5] << 8) |
+                                  ((uint32_t)rxData[6] << 16) |
+                                  ((uint32_t)rxData[7] << 24);
+    if (fault_code == robstride_last_fault_code[device_id] &&
+        warning_code == robstride_last_warning_code[device_id]) {
+        return;
+    }
+    robstride_last_fault_code[device_id] = fault_code;
+    robstride_last_warning_code[device_id] = warning_code;
+
+    if ((fault_code & 0x00000001U) != 0U) {
         printf("motor%d:Motor over temperature fault\n\r", (int)device_id);
     }
-    if ((rxData[0] & 0x02) != 0) {
+    if ((fault_code & 0x00000002U) != 0U) {
         printf("motor%d:Driver chip failure\n\r", (int)device_id);
     }
-    if ((rxData[0] & 0x04) != 0) {
+    if ((fault_code & 0x00000004U) != 0U) {
         printf("motor%d:Undervoltage fault\n\r", (int)device_id);
     }
-    if ((rxData[0] & 0x08) != 0) {
+    if ((fault_code & 0x00000008U) != 0U) {
         printf("motor%d:Overvoltage fault\n\r", (int)device_id);
     }
-    if ((rxData[0] & 0x10) != 0) {
+    if ((fault_code & 0x00000010U) != 0U) {
         printf("motor%d:B-phase current sampling overcurrent\n\r", (int)device_id);
     }
-    if ((rxData[0] & 0x20) != 0) {
+    if ((fault_code & 0x00000020U) != 0U) {
         printf("motor%d:C-phase current sampling overcurrent\n\r", (int)device_id);
     }
-    if ((rxData[0] & 0x80) != 0) {
+    if ((fault_code & 0x00000080U) != 0U) {
         printf("motor%d:Encoder not calibrated\n\r", (int)device_id);
     }
-    if ((rxData[0] & 0x100) != 0) {
+    if ((fault_code & 0x00000100U) != 0U) {
         printf("motor%d:Overload fault\n\r", (int)device_id);
     }
-    if ((rxData[0] & 0x10000) != 0) {
+    if ((fault_code & 0x00010000U) != 0U) {
         printf("motor%d:A-phase current sampling overcurrent\n\r", (int)device_id);
     }
-    if ((rxData[4] & 0x01) != 0) {
+    if ((warning_code & 0x00000001U) != 0U) {
         printf("motor%d:Motor over temperature warning\n\r", (int)device_id);
     }
 }
 
 void Robstride_fb_init(Robstride_DeviceInfo *const device_info) {
+    _Robstride_RegisterParameterMasterId(device_info);
     if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) {
         robstride_fb_data_global[device_info->device_id].plus_minus = -1;
     } else {

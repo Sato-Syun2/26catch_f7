@@ -116,7 +116,9 @@ void MX_CAN3_Init(void)
   /* Arbitration/error時の再送はCANコントローラに任せる。 */
   hcan3.Init.AutoRetransmission = ENABLE;
   hcan3.Init.ReceiveFifoLocked = DISABLE;
-  hcan3.Init.TransmitFifoPriority = DISABLE;
+  /* CAN peripheral arbitration: lower RobStride command identifiers (Type
+   * 3/4) win over normal Type 1/17/18 traffic already in the TX FIFO. */
+  hcan3.Init.TransmitFifoPriority = ENABLE;
   if (HAL_CAN_Init(&hcan3) != HAL_OK)
   {
     Error_Handler();

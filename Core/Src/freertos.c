@@ -299,7 +299,11 @@ void StartRobstrideTask(void const *argument)
       target_refresh_divider = 0U;
     }
 
-    /* フィードバック取得は従来の100 Hzを維持してCAN負荷を抑える。 */
+    /*
+     * 既存のGet経路を意図的に維持し、100 Hzで各モーターの
+     * Type 17パラメータ要求を発行する。サービス通信は別の優先キュー
+     * と送信確認経路を通るため、この過負荷条件でも応答を混同しない。
+     */
     ++feedback_divider;
     if (feedback_divider >= 5U) {
       for (uint8_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
