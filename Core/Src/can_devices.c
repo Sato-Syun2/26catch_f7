@@ -6,10 +6,6 @@
 #include "CAN_Robstride_Def.h"
 #include "robstride_constant.h"
 
-/* 起動前の準備と、スケジューラ開始後の接続待ちを分けて管理する。 */
-static volatile bool can_devices_prepared = false;
-static volatile bool can_devices_initialized = false;
-
 /* FreeRTOS 開始前の初期化処理で使用する待機関数。 */
 static float normalize_robstride_startup_position(float position)
 {
@@ -131,7 +127,7 @@ static void configure_c610_1(void)
     ctrl->rotation = ROBOMAS_ROT_CW;
     ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_CALIB;
     // ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f * 2.0f;
-    ctrl->quant_per_rot = 49.5f / 36.0f * 2.0f;
+    ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f * 2.0f;
     ctrl->current_limit_size = 2.0f;
     ctrl->velocity_limit_size = 10.0f;
     ctrl->pid_vel.kp = 2.0f;
@@ -271,14 +267,10 @@ static void configure_robstride_1(void)
 
 #endif
 
-void CanDevices_InitBeforeWait(CAN_HandleTypeDef *robomas_can,
-                               CAN_HandleTypeDef *robstride_can,
-                               DelayFunction_t delay_function)
+void CanDevices_Init(CAN_HandleTypeDef *robomas_can,
+                     CAN_HandleTypeDef *robstride_can,
+                     DelayFunction_t delay_function)
 {
-    (void)delay_function;
-    can_devices_prepared = false;
-    can_devices_initialized = false;
-
     /* CAN2 上の RoboMaster を初期化してから、個別設定を反映する。 */
     Init_RoboMas_CAN_System(robomas_can);
     RoboMas_Init(robomas_dev_info_global, ROBOMAS_DEVICE_COUNT);
@@ -295,6 +287,15 @@ void CanDevices_InitBeforeWait(CAN_HandleTypeDef *robomas_can,
     configure_c620_2();
 #endif
 
+    /* 接続を確認してから、RoboMaster の制御を有効化する。 */
+    RoboMas_WaitForConnect(robomas_dev_info_global,
+                           ROBOMAS_DEVICE_COUNT,
+                           delay_function);
+    for (uint8_t i = 0U; i < ROBOMAS_DEVICE_COUNT; ++i) {
+        RoboMas_SetTarget(&robomas_dev_info_global[i], 0.0f);
+        RoboMas_ControlEnable(&robomas_dev_info_global[i]);
+    }
+
     /* CAN3 上の Robstride を初期化してから、個別設定を反映する。 */
     Init_Robstride_CAN_System(robstride_can);
     Robstride_Init(robstride_dev_info_global, ROBSTRIDE_DEVICE_COUNT);
@@ -309,36 +310,6 @@ void CanDevices_InitBeforeWait(CAN_HandleTypeDef *robomas_can,
     Robstride_fb_init(&robstride_dev_info_global[1]);
 #endif
 
-    /* ここまで終われば、各タスクがCANフィードバックを参照できる。 */
-    can_devices_prepared = true;
-}
-
-bool CanDevices_IsPrepared(void)
-{
-    return can_devices_prepared;
-}
-
-bool CanDevices_IsInitialized(void)
-{
-    return can_devices_initialized;
-}
-
-Robstride_FeedbackData CanDevices_GetRobstrideFeedback(const uint32_t index)
-{
-    if (index >= ROBSTRIDE_DEVICE_COUNT) {
-        return (Robstride_FeedbackData){0};
-    }
-
-    if (can_devices_prepared) {
-        /* 接続待ち中はCAN受信割り込み側の最新値を直接返す。 */
-        return Read_Robstride_FeedbackData(&robstride_dev_info_global[index]);
-    }
-
-    return feedback_data[index];
-}
-
-void CanDevices_InitAfterWait(DelayFunction_t delay_function)
-{
     /* 接続確認後、停止状態で全パラメータを反映してから制御を有効化する。 */
     Robstride_WaitForConnect(robstride_dev_info_global,
                              ROBSTRIDE_DEVICE_COUNT,
@@ -384,15 +355,4 @@ void CanDevices_InitAfterWait(DelayFunction_t delay_function)
         Robstride_SetTarget(device, initial_position);
         Robstride_SetControl(device, device->ctrl_param.ctrl_type, delay_function);
     }
-
-    can_devices_initialized = true;
-}
-
-void CanDevices_Init(CAN_HandleTypeDef *robomas_can,
-                     CAN_HandleTypeDef *robstride_can,
-                     DelayFunction_t delay_function)
-{
-    /* 既存の同期APIは従来どおり、準備と接続待ちを連続して実行する。 */
-    CanDevices_InitBeforeWait(robomas_can, robstride_can, delay_function);
-    CanDevices_InitAfterWait(delay_function);
 }

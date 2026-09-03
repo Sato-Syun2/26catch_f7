@@ -32,8 +32,6 @@ static int16_t c620_current_f2int(float current) {
 
 static void RoboMas_Ctrl_Struct_init(RoboMas_Ctrl_StructTypedef *ctrl_struct) {
     ctrl_struct->_target_value = 0.0f;
-    ctrl_struct->_req_value = 0.0f;
-    ctrl_struct->_target_valid = false;
     ctrl_struct->_enable_flag = false;
     ctrl_struct->_is_calibrating = false;
     RoboMas_PID_Ctrl_init(&(ctrl_struct->pid_pos));
@@ -55,26 +53,14 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
     float diff = 0.0f, t_current = 0.0f, fb_value = 0.0f;
 
     for (uint8_t i = 0; i < size; i++) {
-        const uint8_t device_id = dev_info_array[i].device_id;
-
-        /* 無効化されたモーターにも0電流を送り、前回指令を残さない。 */
-        if (device_id == 0U || device_id > 8U) {
-            printf("[RoboMas] device_id must be in 1..8\n\r");
-            continue;
-        }
-        if (device_id < 5U) {
-            flag_1 = true;
-        } else {
-            flag_2 = true;
-        }
-
-        if (!(dev_info_array[i].ctrl_param._enable_flag) ||
-            !(dev_info_array[i].ctrl_param._target_valid)) {
-            dev_info_array[i].ctrl_param._req_value = 0.0f;
-            continue;
-        }
+        if (!(dev_info_array[i].ctrl_param._enable_flag))continue;
 
         const RoboMas_FeedbackData fb_data = Get_RoboMas_FeedbackData(&dev_info_array[i]);
+
+        if (dev_info_array[i].device_id == 0) {
+            printf("[RoboMas] device_id must not 0\n\r");
+            continue;
+        }
 
         if (dev_info_array[i].ctrl_param._is_calibrating) {
             if (get_switch_state(dev_info_array[i].ctrl_param._limit_port, dev_info_array[i].ctrl_param._limit_pin, dev_info_array[i].ctrl_param._sw_type)) {
@@ -119,13 +105,6 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
                 t_current = RoboMas_PID_Ctrl_AW(&(dev_info_array[i].ctrl_param.pid_vel), diff, dev_info_array[i].ctrl_param.current_limit == ROBOMAS_LIMIT_ENABLE, dev_info_array[i].ctrl_param.current_limit_size, update_freq_hz);
             }
         }
-        /* 計算中に無効化された場合は、今回の指令を破棄する。 */
-        if (!(dev_info_array[i].ctrl_param._enable_flag) ||
-            !(dev_info_array[i].ctrl_param._target_valid)) {
-            dev_info_array[i].ctrl_param._req_value = 0.0f;
-            continue;
-        }
-
         // 目標値の計算
         switch (dev_info_array[i].device_type) {
             case ROBOMASTER_C610:
@@ -146,13 +125,15 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
         }
 
         // 各モーターの目標値の設定
-        if (device_id < 5U) {
+        if (dev_info_array[i].device_id < 5) {
+            flag_1 = true;
             for (uint8_t j = 0; j < 2; j++) {
-                data1[(device_id - 1U) * 2U + j] = (request_value >> ((!j) * 8)) & 0b11111111;
+                data1[(dev_info_array[i].device_id - 1) * 2 + j] = (request_value >> ((!j) * 8)) & 0b11111111;
             }
-        } else {
+        } else if (dev_info_array[i].device_id >= 5) {
+            flag_2 = true;
             for (uint8_t j = 0; j < 2; j++) {
-                data2[(device_id - 5U) * 2U + j] = (request_value >> ((!j) * 8)) & 0b11111111;
+                data2[(dev_info_array[i].device_id - 5) * 2 + j] = (request_value >> ((!j) * 8)) & 0b11111111;
             }
         }
     }
@@ -244,7 +225,6 @@ void RoboMas_SetTarget(RoboMas_DeviceInfo *device_info, float target_value) {
     if(device_info->ctrl_param._is_calibrating) return;
     
     device_info->ctrl_param._target_value = target_value;
-    device_info->ctrl_param._target_valid = true;
 }
 
 void RoboMas_ControlEnable(RoboMas_DeviceInfo *dev_info) {
@@ -252,13 +232,7 @@ void RoboMas_ControlEnable(RoboMas_DeviceInfo *dev_info) {
 }
 
 void RoboMas_ControlDisable(RoboMas_DeviceInfo *dev_info) {
-    /* 無効化時に目標値・PID積分値をクリアし、再有効化時の飛び出しを防ぐ。 */
-    dev_info->ctrl_param._target_valid = false;
     dev_info->ctrl_param._enable_flag = false;
-    dev_info->ctrl_param._target_value = 0.0f;
-    dev_info->ctrl_param._req_value = 0.0f;
-    RoboMas_PID_Ctrl_init(&(dev_info->ctrl_param.pid_pos));
-    RoboMas_PID_Ctrl_init(&(dev_info->ctrl_param.pid_vel));
 }
 
 bool RoboMas_IsCalibrationEnded(RoboMas_DeviceInfo *dev_info){

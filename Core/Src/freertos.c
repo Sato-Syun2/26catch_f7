@@ -68,10 +68,6 @@ osStaticThreadDef_t RobomasTaskControlBlock;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
-static void CanDevices_RtosDelay(uint32_t milliseconds);
-#if ROBOMAS_DEVICE_COUNT > 0U
-static void wait_for_robomas_connection(void);
-#endif
 /* USER CODE END FunctionPrototypes */
 
 void StartMROSTask(void const * argument);
@@ -189,11 +185,6 @@ void StartRobstrideTask(void const * argument)
 {
   /* USER CODE BEGIN StartRobstrideTask */
   (void)argument;
-  while (!CanDevices_IsPrepared()) {
-    osDelay(10U);
-  }
-  CanDevices_InitAfterWait(CanDevices_RtosDelay);
-
   uint8_t feedback_divider = 0U;
   uint8_t target_refresh_divider = 0U;
   for (;;) {
@@ -235,14 +226,6 @@ void StartRobstrideTask(void const * argument)
 void StartRobomasTask(void const * argument)
 {
   /* USER CODE BEGIN StartRobomasTask */
-  (void)argument;
-  while (!CanDevices_IsPrepared()) {
-    osDelay(10U);
-  }
-
-#if ROBOMAS_DEVICE_COUNT > 0U
-  wait_for_robomas_connection();
-#endif
 #if ROBOMAS_C610_COUNT > 0U
   printf("Calibration...\r\n");
   RoboMas_Calibration(&robomas_dev_info_global[0],
@@ -266,6 +249,7 @@ void StartRobomasTask(void const * argument)
 #endif
 #endif
 
+  (void)argument;
   TickType_t robomas_last_wake_time = xTaskGetTickCount();
   for (;;) {
 #if ROBOMAS_DEVICE_COUNT > 0U
@@ -304,34 +288,5 @@ void StartRobomasTask(void const * argument)
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
 /* micro-ROS の topic 処理は Core/Src/microros_app.c に分離している。 */
-static void CanDevices_RtosDelay(uint32_t milliseconds)
-{
-  (void)osDelay(milliseconds == 0U ? 1U : milliseconds);
-}
-
-#if ROBOMAS_DEVICE_COUNT > 0U
-static void wait_for_robomas_connection(void)
-{
-  bool all_connected;
-
-  printf("[RoboMas] Wait for Connection...\r\n");
-  do {
-    all_connected = true;
-    for (uint8_t i = 0U; i < num_of_robomas; ++i) {
-      const RoboMas_FeedbackData feedback =
-          Get_RoboMas_FeedbackData(&robomas_dev_info_global[i]);
-      robomas_fb[i] = feedback;
-      if (feedback.get_flag == 0U) {
-        all_connected = false;
-      }
-    }
-    if (!all_connected) {
-      osDelay(5U);
-    }
-  } while (!all_connected);
-
-  printf("[RoboMas] All Connected!\r\n");
-}
-#endif
 /* USER CODE END Application */
 
