@@ -12,6 +12,26 @@
 #include "CAN_RoboMas_System.h"
 
 
+/*
+ * The transmit ring is shared by the Robomas task and CAN TX callbacks.
+ * Ethernet traffic changes interrupt timing, so an unprotected ring update
+ * can otherwise turn a transient scheduling difference into a stale or
+ * corrupted current command. This short PRIMASK critical section is usable
+ * from both task and interrupt context and does not call an RTOS API.
+ */
+static uint32_t robomas_enter_critical(void)
+{
+    const uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    return primask;
+}
+
+static void robomas_exit_critical(uint32_t primask)
+{
+    __set_PRIMASK(primask);
+}
+
+
 #define ROBOMAS_CAN_TXBUFFER_SIZE    (512)
 #define ROBOMAS_FEEDBACK_READY_COUNT (50U)
 
@@ -35,6 +55,8 @@ robomas_feedback_data_raw _robomas_feedback_data_raw_global[9];
 
 
 HAL_StatusTypeDef _RoboMas_PushTx8Bytes(CANRingBuf_StdID* p_can_ring, uint32_t StdId, uint8_t* bytes, uint32_t size) {
+    const uint32_t primask = robomas_enter_critical();
+
     p_can_ring->buffer[p_can_ring->write_point].DLC = size;
     p_can_ring->buffer[p_can_ring->write_point].StdId = StdId;
     for (uint8_t i = 0; i < size; i++)p_can_ring->buffer[p_can_ring->write_point].bytes[i] = bytes[i];
@@ -47,12 +69,17 @@ HAL_StatusTypeDef _RoboMas_PushTx8Bytes(CANRingBuf_StdID* p_can_ring, uint32_t S
     if (p_can_ring->write_point == p_can_ring->read_point) {
         p_can_ring->is_full = 1;
     }
+
+    robomas_exit_critical(primask);
     return HAL_OK;
 }
 
 HAL_StatusTypeDef _RoboMas_PopSendTx8Bytes(CAN_HandleTypeDef* phcan, CANRingBuf_StdID* p_can_ring) {
     CAN_TxHeaderTypeDef txHeader;
     uint32_t txMailbox;
+    const uint32_t primask = robomas_enter_critical();
+
+    HAL_StatusTypeDef result = HAL_OK;
 
     txHeader.RTR = CAN_RTR_DATA;
     txHeader.IDE = CAN_ID_STD;
@@ -66,11 +93,16 @@ HAL_StatusTypeDef _RoboMas_PopSendTx8Bytes(CAN_HandleTypeDef* phcan, CANRingBuf_
 
         HAL_StatusTypeDef ret = HAL_CAN_AddTxMessage(phcan, &txHeader, p_can_ring->buffer[p_can_ring->read_point].bytes,
                                                      &txMailbox);
-        if (ret != HAL_OK)return ret;
+        if (ret != HAL_OK) {
+            result = ret;
+            break;
+        }
         p_can_ring->read_point = ((p_can_ring->read_point) + 1) & (ROBOMAS_CAN_TXBUFFER_SIZE - 1);
         p_can_ring->is_full = 0;
     }
-    return HAL_OK;
+
+    robomas_exit_critical(primask);
+    return result;
 }
 
 
@@ -81,24 +113,15 @@ HAL_StatusTypeDef RoboMas_SendBytes(CAN_HandleTypeDef *phcan, uint32_t StdId, ui
 
     for (uint8_t i = 0; i < quotient; i++) {
         ret = _RoboMas_PushTx8Bytes(&_robomas_can_buf_ring1, StdId, bytes + i * 8, 8);
-        if (ret != HAL_OK) {
-            Error_Handler();
-            return ret;
-        }
+        if (ret != HAL_OK)return ret;
     }
 
     if (remainder != 0) {
         ret = _RoboMas_PushTx8Bytes(&_robomas_can_buf_ring1, StdId, bytes + quotient * 8, remainder);
-        if (ret != HAL_OK) {
-            Error_Handler();
-            return ret;
-        }
+        if (ret != HAL_OK)return ret;
     }
     ret = _RoboMas_PopSendTx8Bytes(phcan, &_robomas_can_buf_ring1);
-    if (ret != HAL_OK) {
-        Error_Handler();
-        return ret;
-    }
+    if (ret != HAL_OK)return ret;
     return HAL_OK;
 }
 
