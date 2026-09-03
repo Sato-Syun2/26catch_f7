@@ -127,7 +127,7 @@ static void configure_c610_1(void)
     ctrl->rotation = ROBOMAS_ROT_CW;
     ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_CALIB;
     // ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f * 2.0f;
-    ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f * 2.0f;
+    ctrl->quant_per_rot = 99.0f / 36.0f;
     ctrl->current_limit_size = 2.0f;
     ctrl->velocity_limit_size = 10.0f;
     ctrl->pid_vel.kp = 2.0f;
@@ -150,7 +150,7 @@ static void configure_c610_2(void)
 
     ctrl->rotation = ROBOMAS_ROT_ACW;
     ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_CALIB;
-    ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f* 2.0f;
+    ctrl->quant_per_rot = 28.0f * 3.14159265359f / 36.0f;
     ctrl->current_limit_size = 2.0f;
     ctrl->velocity_limit_size = 10.0f;
     ctrl->pid_vel.kp = 2.0f;
