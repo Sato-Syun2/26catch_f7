@@ -66,13 +66,19 @@ size_t cubemx_transport_write(struct uxrCustomTransport* transport, const uint8_
 size_t cubemx_transport_read(struct uxrCustomTransport* transport, uint8_t* buf, size_t len, int timeout, uint8_t* err){
 
     int ret = 0;
+    if (sock_fd == -1)
+    {
+        return 0;
+    }
+
     //set timeout
     struct timeval tv_out;
     tv_out.tv_sec = timeout / 1000;
     tv_out.tv_usec = (timeout % 1000) * 1000;
     setsockopt(sock_fd, SOL_SOCKET, SO_RCVTIMEO,&tv_out, sizeof(tv_out));
-    // ret = recv(sock_fd, buf, len, MSG_WAITALL);
-    ret = recv(sock_fd, buf, len, MSG_DONTWAIT);
+    /* timeout指定時だけ待機し、timeout=0のspin_someは即時復帰させる。 */
+    const int recv_flags = (timeout > 0) ? 0 : MSG_DONTWAIT;
+    ret = recv(sock_fd, buf, len, recv_flags);
     size_t readed = ret > 0 ? ret : 0;
     return readed;
 }

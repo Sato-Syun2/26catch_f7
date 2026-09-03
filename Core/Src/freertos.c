@@ -229,7 +229,7 @@ void StartRobomasTask(void const * argument)
 #if ROBOMAS_C610_COUNT > 0U
   printf("Calibration...\r\n");
   RoboMas_Calibration(&robomas_dev_info_global[0],
-                      -4.0f,
+                      -10.0f,
                       ROBOMAS_SWITCH_NO,
                       sensor2_GPIO_Port,
                       sensor2_Pin,
@@ -237,19 +237,20 @@ void StartRobomasTask(void const * argument)
 #if ROBOMAS_C610_COUNT > 1U
   printf("Calibration 2...\r\n");
   RoboMas_Calibration(&robomas_dev_info_global[1],
-                      -1.0f,
+                      -5.0f,
                       ROBOMAS_SWITCH_NO,
                       sensor1_GPIO_Port,
                       sensor1_Pin,
                       &hcan2);
 #endif
+  bool calibration_first_done_printed = false;
+#if ROBOMAS_C610_COUNT > 1U
+  bool calibration_second_done_printed = false;
 #endif
-
-#if ROBOMAS_C610_COUNT > 0U
-  bool calibration_done_printed = false;
 #endif
 
   (void)argument;
+  TickType_t robomas_last_wake_time = xTaskGetTickCount();
   for (;;) {
 #if ROBOMAS_DEVICE_COUNT > 0U
     RoboMas_SendRequest(robomas_dev_info_global,
@@ -258,26 +259,28 @@ void StartRobomasTask(void const * argument)
                         &hcan2);
 
 #if ROBOMAS_C610_COUNT > 0U
-    if (!calibration_done_printed) {
-      bool calibration_done =
-          RoboMas_IsCalibrationEnded(&robomas_dev_info_global[0]);
-#if ROBOMAS_C610_COUNT > 1U
-      calibration_done =
-          calibration_done &&
-          RoboMas_IsCalibrationEnded(&robomas_dev_info_global[1]);
-#endif
-      if (calibration_done) {
-        printf("Calibration done.\r\n");
-        calibration_done_printed = true;
-      }
+    /* 各モーターの完了を個別に通知する。 */
+    if (!calibration_first_done_printed &&
+        RoboMas_IsCalibrationEnded(&robomas_dev_info_global[0])) {
+      printf("Calibration 1 done.\r\n");
+      calibration_first_done_printed = true;
     }
+
+#if ROBOMAS_C610_COUNT > 1U
+    if (!calibration_second_done_printed &&
+        RoboMas_IsCalibrationEnded(&robomas_dev_info_global[1])) {
+      printf("Calibration 2 done.\r\n");
+      calibration_second_done_printed = true;
+    }
+#endif
 #endif
 
     for (uint8_t i = 0U; i < num_of_robomas; ++i) {
       robomas_fb[i] = Get_RoboMas_FeedbackData(&robomas_dev_info_global[i]);
     }
 #endif
-    osDelay(2U);
+    /* Agent接続待ちなど他タスクの処理時間に影響されない周期待ち。 */
+    vTaskDelayUntil(&robomas_last_wake_time, pdMS_TO_TICKS(2U));
   }
   /* USER CODE END StartRobomasTask */
 }
