@@ -30,6 +30,7 @@ void Robstride_SetControl(Robstride_DeviceInfo *dev_info, ROBSTRIDE_CTRL_TYPE ne
 
 void Robstride_ChangeControl(Robstride_DeviceInfo *dev_info, ROBSTRIDE_CTRL_TYPE new_ctrl_type, DelayFunction_t f_delay);
 
+/* ctrl_typeに応じて内部レジスタへ送信し、VEL_DOBではF7側で電流を計算する。 */
 void Robstride_SetTarget(Robstride_DeviceInfo *device_info, float target_value);
 
 void Robstride_PID_Pos(Robstride_DeviceInfo *device_info, float target_pos, float now_pos);

@@ -10,13 +10,16 @@
 #include <stdbool.h>
 
 #include "RoboMas_Control.h"
+#include "CAN_RoboMas/Control/Actuator_VelocityDob.h"
 #include "main.h"
 
 
 typedef enum {
     ROBOMAS_CTRL_POS = 0,
     ROBOMAS_CTRL_VEL = 1,
-    ROBOMAS_CTRL_CURRENT = 2
+    ROBOMAS_CTRL_CURRENT = 2,
+    ROBOMAS_CTRL_POS_AW = 3,
+    ROBOMAS_CTRL_VEL_DOB = 4
 } ROBOMAS_CTRL_TYPE;  // C620の制御タイプ
 
 
@@ -63,6 +66,8 @@ typedef struct {
     float velocity_limit_size;
     float quant_per_rot;
     float offset_pos;
+    RoboMas_Actuator_VelocityDob_Parameters velocity_dob;
+    RoboMas_Actuator_VelocityDob_State velocity_dob_state;
     // ↓ don't change
     float _target_value;
     float _req_value;

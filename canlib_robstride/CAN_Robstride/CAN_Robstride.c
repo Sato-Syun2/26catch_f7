@@ -47,10 +47,13 @@ static bool robstride_write_int_verified(Robstride_DeviceInfo *device_info,
 static bool robstride_set_target_verified(Robstride_DeviceInfo *device_info,
                                           float target_value,
                                           DelayFunction_t f_delay);
+static void robstride_send_current(Robstride_DeviceInfo *device_info,
+                                   float current);
 static bool robstride_control_command_verified(Robstride_DeviceInfo *device_info,
                                                 uint8_t command_id,
                                                 uint8_t expected_state,
                                                 DelayFunction_t f_delay);
+static uint8_t robstride_wire_control_type(ROBSTRIDE_CTRL_TYPE ctrl_type);
 
 // Functions --------------------------------
 
@@ -77,6 +80,7 @@ static void Robstride_PID_Ctrl_init(Robstride_PID_StructTypedef *const params) {
  * @retval なし
  */
 static void Robstride_Ctrl_Struct_init(Robstride_Ctrl_StructTypedef *const ctrl_struct) {
+    Robstride_Actuator_VelocityDob_Reset(&(ctrl_struct->velocity_dob_state));
     ctrl_struct->_target_value = 0.0f;            // 目標値の初期値
     ctrl_struct->_enable_flag = 0;                // 有効フラグの初期値 (無効)
     Robstride_PID_Ctrl_init(&(ctrl_struct->pid)); // PIDパラメータ構造体を初期化
@@ -92,6 +96,14 @@ void Robstride_Init(Robstride_DeviceInfo dev_info_array[], const uint8_t size) {
     for (uint8_t i = 0; i < size; i++) {
         Robstride_Ctrl_Struct_init(&(dev_info_array[i].ctrl_param)); // 各デバイスの制御構造体を初期化
     }
+}
+
+static uint8_t robstride_wire_control_type(const ROBSTRIDE_CTRL_TYPE ctrl_type)
+{
+    /* VEL_DOBはF7側制御なので、モータ内部は電流モードで動かす。 */
+    return ctrl_type == ROBSTRIDE_CTRL_VEL_DOB
+               ? (uint8_t)ROBSTRIDE_CTRL_CURRENT
+               : (uint8_t)ctrl_type;
 }
 
 static bool robstride_deadline_reached(const uint32_t start_tick,
@@ -744,6 +756,7 @@ void Robstride_Calibration(Robstride_DeviceInfo *const device_info, float calib_
  * @retval なし
  */
 void Robstride_SetControl(Robstride_DeviceInfo *const dev_info, const ROBSTRIDE_CTRL_TYPE new_ctrl_type, DelayFunction_t f_delay) {
+    const uint8_t wire_ctrl_type = robstride_wire_control_type(new_ctrl_type);
     /*
      * ctrl_type は設定値であり、モーター側の現在値ではない。起動時には
      * 同じ値でも必ず CAN 経由で書き込んで、電源投入直後のモーターへ反映する。
@@ -754,8 +767,8 @@ void Robstride_SetControl(Robstride_DeviceInfo *const dev_info, const ROBSTRIDE_
     dev_info->ctrl_param.ctrl_type = new_ctrl_type;                           // 新しい制御モードを設定
     if (!robstride_write_int_verified(dev_info,
                                       ADDR_RUN_MODE,
-                                      (uint16_t)new_ctrl_type,
-                                      (uint8_t)new_ctrl_type,
+                                      (uint16_t)wire_ctrl_type,
+                                      wire_ctrl_type,
                                       f_delay)) {
         dev_info->ctrl_param._enable_flag = 0U;
         return;
@@ -770,6 +783,7 @@ void Robstride_SetControl(Robstride_DeviceInfo *const dev_info, const ROBSTRIDE_
  * @retval なし
  */
 void Robstride_ChangeControl(Robstride_DeviceInfo *const dev_info, const ROBSTRIDE_CTRL_TYPE new_ctrl_type, DelayFunction_t f_delay) {
+    const uint8_t wire_ctrl_type = robstride_wire_control_type(new_ctrl_type);
     Robstride_Ctrl_Struct_init(&(dev_info->ctrl_param)); // 制御パラメータ構造体を初期化 (PIDパラメータなども初期値に戻る)
     if (!Robstride_ControlDisable(dev_info, f_delay)) {  // control_disable時のみ制御モードが変更可能
         return;
@@ -777,8 +791,8 @@ void Robstride_ChangeControl(Robstride_DeviceInfo *const dev_info, const ROBSTRI
     dev_info->ctrl_param.ctrl_type = new_ctrl_type;      // 新しい制御モードを設定
     if (!robstride_write_int_verified(dev_info,
                                       ADDR_RUN_MODE,
-                                      (uint16_t)new_ctrl_type,
-                                      (uint8_t)new_ctrl_type,
+                                      (uint16_t)wire_ctrl_type,
+                                      wire_ctrl_type,
                                       f_delay)) {
         dev_info->ctrl_param._enable_flag = 0U;
     }
@@ -798,7 +812,40 @@ static HAL_StatusTypeDef robstride_set_target_internal(
     uint16_t address;
     float wire_value;
 
+    if (device_info == NULL || !isfinite(target_value)) {
+        return HAL_ERROR;
+    }
     device_info->ctrl_param._target_value = target_value;
+
+    /* VEL_DOBの速度目標はF7に保持し、速度レジスタへは送らない。 */
+    if (device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_VEL_DOB) {
+        if (device_info->ctrl_param._enable_flag == 0U) {
+            device_info->ctrl_param._req_value = 0.0f;
+            Robstride_Actuator_VelocityDob_Reset(
+                &(device_info->ctrl_param.velocity_dob_state));
+            return HAL_OK;
+        }
+
+        const Robstride_FeedbackData feedback =
+            Read_Robstride_FeedbackData(device_info);
+        if (feedback.get_flag == 0U || !isfinite(feedback.velocity)) {
+            device_info->ctrl_param._req_value = 0.0f;
+            Robstride_Actuator_VelocityDob_Reset(
+                &(device_info->ctrl_param.velocity_dob_state));
+            robstride_send_current(device_info, 0.0f);
+            return HAL_OK;
+        }
+
+        const float current = Robstride_Actuator_VelocityDob_Update(
+            &(device_info->ctrl_param.velocity_dob),
+            &(device_info->ctrl_param.velocity_dob_state),
+            target_value,
+            feedback.velocity,
+            device_info->ctrl_param.velocity_dob.control_period);
+        robstride_send_current(device_info, current);
+        return HAL_OK;
+    }
+
     if (!robstride_target_parameter(device_info,
                                     target_value,
                                     &address,
@@ -818,6 +865,31 @@ static HAL_StatusTypeDef robstride_set_target_internal(
 
 void Robstride_SetTarget(Robstride_DeviceInfo *const device_info, const float target_value) {
     (void)robstride_set_target_internal(device_info, target_value, false);
+}
+
+static void robstride_send_current(Robstride_DeviceInfo *const device_info,
+                                   const float current)
+{
+    if (device_info == NULL) {
+        return;
+    }
+
+    float limited_current = isfinite(current) ? current : 0.0f;
+    const float current_limit =
+        fabsf(device_info->ctrl_param.current_limit_size);
+    if (isfinite(current_limit) && current_limit > 0.0f) {
+        limited_current = fmaxf(-current_limit,
+                                fminf(limited_current, current_limit));
+    } else {
+        limited_current = 0.0f;
+    }
+
+    device_info->ctrl_param._req_value = limited_current;
+    float wire_current = limited_current;
+    if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) {
+        wire_current *= -1.0f;
+    }
+    Robstride_WriteFloatData(device_info, ADDR_IQ_REF, wire_current);
 }
 
 static bool robstride_set_target_verified(Robstride_DeviceInfo *const device_info,
@@ -899,6 +971,8 @@ uint8_t Robstride_ControlEnable(Robstride_DeviceInfo *const dev_info, DelayFunct
  * @retval なし
  */
 uint8_t Robstride_ControlDisable(Robstride_DeviceInfo *const dev_info, DelayFunction_t f_delay) {
+    dev_info->ctrl_param._req_value = 0.0f;
+    Robstride_Actuator_VelocityDob_Reset(&(dev_info->ctrl_param.velocity_dob_state));
     const uint8_t success = robstride_control_command_verified(
         dev_info,
         CMD_RESET,

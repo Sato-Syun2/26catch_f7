@@ -6,6 +6,7 @@
 #define _CAN_ROBSTRIDE_DEF_H
 
 #include <Robstride_Control.h>
+#include "CAN_Robstride/Control/Actuator_VelocityDob.h"
 #include "stdint.h"
 #include "main.h"
 
@@ -13,7 +14,8 @@ typedef enum {
     ROBSTRIDE_CTRL_OPERATION = 0,
     ROBSTRIDE_CTRL_POS = 1,
     ROBSTRIDE_CTRL_VEL = 2,
-    ROBSTRIDE_CTRL_CURRENT = 3
+    ROBSTRIDE_CTRL_CURRENT = 3,
+    ROBSTRIDE_CTRL_VEL_DOB = 4
 } ROBSTRIDE_CTRL_TYPE; // 制御タイプ
 
 typedef enum {
@@ -60,6 +62,8 @@ typedef struct {
     float current_limit_size;  // Limit_Cur [A]
     float torque_limit_size;   // Limit_Torque
     float quant_per_rot;
+    Robstride_Actuator_VelocityDob_Parameters velocity_dob;
+    Robstride_Actuator_VelocityDob_State velocity_dob_state;
     // ↓ don't change
     float _target_value;
     float _req_value;

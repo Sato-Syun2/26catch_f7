@@ -298,18 +298,13 @@ void StartRobstrideTask(void const * argument)
   }
 
   uint8_t feedback_divider = 0U;
-  uint8_t target_refresh_divider = 0U;
   for (;;) {
     /* ROS受信とCAN送信を分離し、ここをRobstrideの制御周期にする。 */
     MicroRos_ApplyPendingRobstrideCommands();
     MicroRos_ReportDiagnostics();
 
-    /* 保持用の再送は100 Hzに抑え、新しい目標値だけを500 Hzで送る。 */
-    ++target_refresh_divider;
-    if (target_refresh_divider >= 5U) {
-      MicroRos_RefreshRobstrideTargets();
-      target_refresh_divider = 0U;
-    }
+    /* 目標値の入力はSetTarget()へ集約し、VEL_DOBも同じ経路で500 Hz実行する。 */
+    MicroRos_RefreshRobstrideTargets();
 
     /*
      * 既存のGet経路を意図的に維持し、100 Hzで各モーターの

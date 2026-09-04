@@ -19,7 +19,7 @@ void MicroRosTask_Run(void);
 /* RobstrideTask から呼び出し、受信済みの最新 ROS 指令を CAN へ適用する。 */
 void MicroRos_ApplyPendingRobstrideCommands(void);
 
-/* RobstrideTask から定期的に呼び出し、最新の ROS 指令を CAN へ再送する。 */
+/* RobstrideTaskから呼び出し、目標値をSetTarget()へ制御周期ごとに渡す。 */
 void MicroRos_RefreshRobstrideTargets(void);
 
 /* 高負荷時の受信集約・CAN送信状態を1秒周期でシリアルへ通知する。 */

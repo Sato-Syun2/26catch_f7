@@ -15,6 +15,7 @@ static float _clip_f_abs(float var, float abs_ref);
 static int16_t c610_current_f2int(float current);
 static int16_t c620_current_f2int(float current);
 static void RoboMas_Ctrl_Struct_init(RoboMas_Ctrl_StructTypedef *ctrl_struct);
+static bool robomas_is_position_control(ROBOMAS_CTRL_TYPE ctrl_type);
 
 // Functions --------------------------------
 static float _clip_f_abs(float var, float abs_ref) {
@@ -30,6 +31,10 @@ static int16_t c620_current_f2int(float current) {
     return (int16_t) (current * 16384.0f / 20.0f);
 }
 
+static bool robomas_is_position_control(const ROBOMAS_CTRL_TYPE ctrl_type) {
+    return ctrl_type == ROBOMAS_CTRL_POS || ctrl_type == ROBOMAS_CTRL_POS_AW;
+}
+
 static void RoboMas_Ctrl_Struct_init(RoboMas_Ctrl_StructTypedef *ctrl_struct) {
     ctrl_struct->_target_value = 0.0f;
     ctrl_struct->_req_value = 0.0f;
@@ -38,6 +43,7 @@ static void RoboMas_Ctrl_Struct_init(RoboMas_Ctrl_StructTypedef *ctrl_struct) {
     ctrl_struct->_is_calibrating = false;
     RoboMas_PID_Ctrl_init(&(ctrl_struct->pid_pos));
     RoboMas_PID_Ctrl_init(&(ctrl_struct->pid_vel));
+    RoboMas_Actuator_VelocityDob_Reset(&(ctrl_struct->velocity_dob_state));
 }
 
 void RoboMas_Init(RoboMas_DeviceInfo dev_info_array[], uint8_t size) {
@@ -90,7 +96,7 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
                 
                 RoboMas_ControlDisable(&dev_info_array[i]);
                 RoboMas_ChangeControl(&dev_info_array[i], dev_info_array[i].ctrl_param._ctrl_type_before_calib);
-                if(dev_info_array[i].ctrl_param._ctrl_type_before_calib == ROBOMAS_CTRL_POS){
+                if(robomas_is_position_control(dev_info_array[i].ctrl_param._ctrl_type_before_calib)){
                     RoboMas_SetTarget(&dev_info_array[i], dev_info_array[i].ctrl_param.offset_pos);
                 }else{
                     RoboMas_SetTarget(&dev_info_array[i], 0.0f);
@@ -104,9 +110,20 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
 
         if (dev_info_array[i].ctrl_param.ctrl_type == ROBOMAS_CTRL_CURRENT) {
             t_current = dev_info_array[i].ctrl_param._target_value;
+        } else if (dev_info_array[i].ctrl_param.ctrl_type == ROBOMAS_CTRL_VEL_DOB) {
+            const float dt = update_freq_hz > 0.0f
+                                 ? 1.0f / update_freq_hz
+                                 : 0.0f;
+            t_current = RoboMas_Actuator_VelocityDob_Update(
+                &(dev_info_array[i].ctrl_param.velocity_dob),
+                &(dev_info_array[i].ctrl_param.velocity_dob_state),
+                dev_info_array[i].ctrl_param._target_value,
+                fb_data.velocity,
+                dt);
         } else {
             switch (dev_info_array[i].ctrl_param.ctrl_type) {
                 case ROBOMAS_CTRL_POS:
+                case ROBOMAS_CTRL_POS_AW:
                     fb_value = fb_data.position;
                     break;
                 case ROBOMAS_CTRL_VEL:
@@ -117,7 +134,7 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
                     break;
             }
             diff = dev_info_array[i].ctrl_param._target_value - fb_value;
-            if(dev_info_array[i].ctrl_param.ctrl_type == ROBOMAS_CTRL_POS) {
+            if(robomas_is_position_control(dev_info_array[i].ctrl_param.ctrl_type)) {
                 const float t_vel = RoboMas_PID_Ctrl_AW(&(dev_info_array[i].ctrl_param.pid_pos), diff, dev_info_array[i].ctrl_param.velocity_limit == ROBOMAS_LIMIT_ENABLE, dev_info_array[i].ctrl_param.velocity_limit_size, update_freq_hz);
                 t_current = RoboMas_PID_Ctrl_AW(&(dev_info_array[i].ctrl_param.pid_vel), t_vel - fb_data.velocity, dev_info_array[i].ctrl_param.current_limit == ROBOMAS_LIMIT_ENABLE, dev_info_array[i].ctrl_param.current_limit_size, update_freq_hz);
                 // 位置制御の場合は速度と位置の2重でPID
@@ -275,6 +292,7 @@ void RoboMas_ControlDisable(RoboMas_DeviceInfo *dev_info) {
     dev_info->ctrl_param._req_value = 0.0f;
     RoboMas_PID_Ctrl_init(&(dev_info->ctrl_param.pid_pos));
     RoboMas_PID_Ctrl_init(&(dev_info->ctrl_param.pid_vel));
+    RoboMas_Actuator_VelocityDob_Reset(&(dev_info->ctrl_param.velocity_dob_state));
 }
 
 bool RoboMas_IsCalibrationEnded(RoboMas_DeviceInfo *dev_info){

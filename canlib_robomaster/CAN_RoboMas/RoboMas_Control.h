@@ -6,6 +6,7 @@
 #define ROBOMAS_CONTROL_H
 
 #include "stdint.h"
+#include "stdbool.h"
 
 
 typedef struct {
@@ -18,6 +19,8 @@ typedef struct {
     //values
     float _integral;
     float _prev_value;
+    bool _output_saturated;
+    bool _anti_windup_active;
 } RoboMas_PID_StructTypedef;
 
 

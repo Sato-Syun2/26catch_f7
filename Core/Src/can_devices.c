@@ -14,6 +14,63 @@
 static volatile bool can_devices_prepared = false;
 static volatile bool can_devices_initialized = false;
 
+/* 実験用の初期値。同定後は各デバイスのvelocity_dobを置き換える。 */
+static void configure_robomas_velocity_dob(
+    RoboMas_Actuator_VelocityDob_Parameters *const parameters,
+    const float velocity_limit,
+    const float current_limit,
+    const float velocity_unit_to_rad_s,
+    const bool velocity_limit_enable,
+    const bool current_limit_enable,
+    const bool torque_limit_enable)
+{
+    parameters->J = 1.0e-3f;
+    parameters->d = 1.0e-2f;
+    parameters->K_tau = 1.0f;
+    parameters->dob_bandwidth = 20.0f;
+    parameters->velocity_kp = 0.5f;
+    parameters->velocity_ki = 1.0f;
+    parameters->velocity_kd = 0.0f;
+    parameters->reference_alpha = 10.0f;
+    parameters->velocity_limit = velocity_limit;
+    parameters->current_limit = current_limit;
+    /* 初期K_tau=1.0f [Nm/A]に基づく有効なトルク値を保持する。適用可否はflagで決める。 */
+    parameters->torque_limit = current_limit * parameters->K_tau;
+    parameters->velocity_limit_enable = velocity_limit_enable;
+    parameters->current_limit_enable = current_limit_enable;
+    parameters->torque_limit_enable = torque_limit_enable;
+    parameters->velocity_unit_to_rad_s = velocity_unit_to_rad_s;
+    parameters->control_period = 0.002f;
+}
+
+static void configure_robstride_velocity_dob(
+    Robstride_Actuator_VelocityDob_Parameters *const parameters,
+    const float velocity_limit,
+    const float current_limit,
+    const float velocity_unit_to_rad_s,
+    const bool velocity_limit_enable,
+    const bool current_limit_enable,
+    const bool torque_limit_enable)
+{
+    parameters->J = 1.0e-3f;
+    parameters->d = 1.0e-2f;
+    parameters->K_tau = 1.0f;
+    parameters->dob_bandwidth = 20.0f;
+    parameters->velocity_kp = 0.5f;
+    parameters->velocity_ki = 1.0f;
+    parameters->velocity_kd = 0.0f;
+    parameters->reference_alpha = 10.0f;
+    parameters->velocity_limit = velocity_limit;
+    parameters->current_limit = current_limit;
+    /* 初期K_tau=1.0f [Nm/A]に基づく有効なトルク値を保持する。適用可否はflagで決める。 */
+    parameters->torque_limit = current_limit * parameters->K_tau;
+    parameters->velocity_limit_enable = velocity_limit_enable;
+    parameters->current_limit_enable = current_limit_enable;
+    parameters->torque_limit_enable = torque_limit_enable;
+    parameters->velocity_unit_to_rad_s = velocity_unit_to_rad_s;
+    parameters->control_period = 0.002f;
+}
+
 /* FreeRTOS 開始前の初期化処理で使用する待機関数。 */
 static float normalize_robstride_startup_position(float position)
 {
@@ -120,10 +177,10 @@ static void configure_robomas_common(RoboMas_DeviceInfo *device)
     RoboMas_Ctrl_StructTypedef *ctrl = &device->ctrl_param;
 
     ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_INTERNAL;
-    ctrl->ctrl_type = ROBOMAS_CTRL_POS;
+    ctrl->ctrl_type = ROBOMAS_CTRL_POS_AW;
     /* Imported from the Robomaster calibration branch. */
     ctrl->current_limit = ROBOMAS_LIMIT_ENABLE;
-    ctrl->velocity_limit = ROBOMAS_LIMIT_DISABLE;
+    ctrl->velocity_limit = ROBOMAS_LIMIT_ENABLE;
 }
 
 /* C610 #1（CAN ID 4）の設定。PID はここで個別に変更する。 */
@@ -147,6 +204,13 @@ static void configure_c610_1(void)
     ctrl->pid_pos.ki = 0.0f;
     ctrl->pid_pos.kd = 0.0f;
     ctrl->pid_pos.kff = 0.0f;
+    configure_robomas_velocity_dob(&ctrl->velocity_dob,
+                                   ctrl->velocity_limit_size,
+                                   ctrl->current_limit_size,
+                                   1.0f,
+                                   ctrl->velocity_limit == ROBOMAS_LIMIT_ENABLE,
+                                   ctrl->current_limit == ROBOMAS_LIMIT_ENABLE,
+                                   false);
 }
 #endif
 
@@ -170,6 +234,13 @@ static void configure_c610_2(void)
     ctrl->pid_pos.ki = 0.0f;
     ctrl->pid_pos.kd = 0.0f;
     ctrl->pid_pos.kff = 0.0f;
+    configure_robomas_velocity_dob(&ctrl->velocity_dob,
+                                   ctrl->velocity_limit_size,
+                                   ctrl->current_limit_size,
+                                   1.0f,
+                                   ctrl->velocity_limit == ROBOMAS_LIMIT_ENABLE,
+                                   ctrl->current_limit == ROBOMAS_LIMIT_ENABLE,
+                                   false);
 }
 #endif
 
@@ -193,6 +264,13 @@ static void configure_c620_1(void)
     ctrl->pid_pos.ki = 0.0f;
     ctrl->pid_pos.kd = 0.0f;
     ctrl->pid_pos.kff = 0.0f;
+    configure_robomas_velocity_dob(&ctrl->velocity_dob,
+                                   ctrl->velocity_limit_size,
+                                   ctrl->current_limit_size,
+                                   1.0f,
+                                   ctrl->velocity_limit == ROBOMAS_LIMIT_ENABLE,
+                                   ctrl->current_limit == ROBOMAS_LIMIT_ENABLE,
+                                   false);
 }
 #endif
 
@@ -216,6 +294,13 @@ static void configure_c620_2(void)
     ctrl->pid_pos.ki = 0.0f;
     ctrl->pid_pos.kd = 0.0f;
     ctrl->pid_pos.kff = 0.0f;
+    configure_robomas_velocity_dob(&ctrl->velocity_dob,
+                                   ctrl->velocity_limit_size,
+                                   ctrl->current_limit_size,
+                                   1.0f,
+                                   ctrl->velocity_limit == ROBOMAS_LIMIT_ENABLE,
+                                   ctrl->current_limit == ROBOMAS_LIMIT_ENABLE,
+                                   false);
 }
 #endif
 
@@ -227,7 +312,7 @@ static void configure_robstride_common(Robstride_DeviceInfo *device)
     Robstride_Ctrl_StructTypedef *ctrl = &device->ctrl_param;
 
     ctrl->use_internal_offset = ROBSTRIDE_USE_OFFSET_POS_INTERNAL;
-    ctrl->ctrl_type = ROBSTRIDE_CTRL_POS;
+    ctrl->ctrl_type = ROBSTRIDE_CTRL_VEL_DOB;
     ctrl->velocity_limit = ROBSTRIDE_VELOCITY_LIMIT_ENABLE;
     ctrl->current_limit = ROBSTRIDE_CURRENT_LIMIT_ENABLE;
     ctrl->torque_limit = ROBSTRIDE_TORQUE_LIMIT_DISABLE;
@@ -236,6 +321,16 @@ static void configure_robstride_common(Robstride_DeviceInfo *device)
     ctrl->current_limit_size = 2.0f;
     ctrl->torque_limit_size = 17.0f;
     ctrl->quant_per_rot = 360.0f / (2.0f * 3.14159265359f);
+    configure_robstride_velocity_dob(&ctrl->velocity_dob,
+                                     ctrl->velocity_limit_size,
+                                     ctrl->current_limit_size,
+                                     1.0f / ctrl->quant_per_rot,
+                                     ctrl->velocity_limit ==
+                                         ROBSTRIDE_VELOCITY_LIMIT_ENABLE,
+                                     ctrl->current_limit ==
+                                         ROBSTRIDE_CURRENT_LIMIT_ENABLE,
+                                     ctrl->torque_limit ==
+                                         ROBSTRIDE_TORQUE_LIMIT_ENABLE);
 }
 
 /* Robstride スロット 0 の設定。 */
@@ -247,6 +342,8 @@ static void configure_robstride_0(void)
 
     /* ID2（根本）は速度制限を無効化し、通常確認用に2Aへ設定する。 */
     ctrl->velocity_limit = ROBSTRIDE_VELOCITY_LIMIT_DISABLE;
+    ctrl->velocity_dob.velocity_limit = 44.0f;
+    ctrl->velocity_dob.velocity_limit_enable = false;
     ctrl->velocity_limit_size = 44.0f; /* Robstride_02の速度上限 */
     ctrl->current_limit = ROBSTRIDE_CURRENT_LIMIT_ENABLE;
     ctrl->current_limit_size = 2.0f; /* 通常確認用の電流上限 */
@@ -395,8 +492,12 @@ void CanDevices_InitAfterWait(DelayFunction_t delay_function)
         }
 
         /* micro-ROSの指令値と同じ度数法で、起動時の現在値を目標にする。 */
-        robstride_target_value[i] = initial_position;
-        Robstride_SetTarget(device, initial_position);
+        const float initial_target =
+            device->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_VEL_DOB
+                ? 0.0f
+                : initial_position;
+        robstride_target_value[i] = initial_target;
+        Robstride_SetTarget(device, initial_target);
         Robstride_SetControl(device, device->ctrl_param.ctrl_type, delay_function);
     }
 

@@ -601,6 +601,7 @@ static float robstride_command_target_value(
     case ROBSTRIDE_CTRL_POS:
       return command->position;
     case ROBSTRIDE_CTRL_VEL:
+    case ROBSTRIDE_CTRL_VEL_DOB:
       return command->velocity;
     case ROBSTRIDE_CTRL_CURRENT:
       return command->current;
@@ -615,8 +616,10 @@ static float robomas_command_target_value(
 {
   switch (device->ctrl_param.ctrl_type) {
     case ROBOMAS_CTRL_POS:
+    case ROBOMAS_CTRL_POS_AW:
       return command->position;
     case ROBOMAS_CTRL_VEL:
+    case ROBOMAS_CTRL_VEL_DOB:
       return command->velocity;
     case ROBOMAS_CTRL_CURRENT:
       return command->current;
@@ -723,9 +726,21 @@ void MicroRos_ApplyPendingRobstrideCommands(void)
 
 void MicroRos_RefreshRobstrideTargets(void)
 {
+  static uint8_t normal_target_refresh_divider = 0U;
+  bool refresh_normal_targets;
+
+  ++normal_target_refresh_divider;
+  refresh_normal_targets = normal_target_refresh_divider >= 5U;
+  if (refresh_normal_targets) {
+    normal_target_refresh_divider = 0U;
+  }
+
   for (uint32_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
     catch26_interface__msg__UrosF7MotorUnitCommand command = {0};
     bool valid;
+    const bool velocity_dob =
+        robstride_dev_info_global[i].ctrl_param.ctrl_type ==
+        ROBSTRIDE_CTRL_VEL_DOB;
     const uint32_t primask = __get_PRIMASK();
 
     __disable_irq();
@@ -735,7 +750,14 @@ void MicroRos_RefreshRobstrideTargets(void)
     }
     __set_PRIMASK(primask);
 
-    if (valid) {
+    /* VEL_DOBは保持中の目標値でもSetTarget()を毎制御周期に通す。 */
+    if (velocity_dob) {
+      const float target = valid
+                               ? robstride_command_target_value(
+                                     &robstride_dev_info_global[i], &command)
+                               : robstride_dev_info_global[i].ctrl_param._target_value;
+      Robstride_SetTarget(&robstride_dev_info_global[i], target);
+    } else if (valid && refresh_normal_targets) {
       Robstride_SetTarget(&robstride_dev_info_global[i],
                           robstride_command_target_value(
                               &robstride_dev_info_global[i], &command));
@@ -813,9 +835,16 @@ static uint8_t robstride_state(
     return catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_DISABLE;
   }
 
-  if (device->ctrl_param.ctrl_type >= ROBSTRIDE_CTRL_POS &&
-      device->ctrl_param.ctrl_type <= ROBSTRIDE_CTRL_CURRENT) {
-    return (uint8_t)device->ctrl_param.ctrl_type;
+  switch (device->ctrl_param.ctrl_type) {
+    case ROBSTRIDE_CTRL_POS:
+      return catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_POSITION;
+    case ROBSTRIDE_CTRL_VEL:
+    case ROBSTRIDE_CTRL_VEL_DOB:
+      return catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_VELOCITY;
+    case ROBSTRIDE_CTRL_CURRENT:
+      return catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_CURRENT;
+    default:
+      break;
   }
 
   return catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_DISABLE;
@@ -852,9 +881,31 @@ static void set_robomas_feedback(
   output->position = feedback->position;
   output->velocity = feedback->velocity;
   output->current = feedback->current;
-  output->state = device->ctrl_param._enable_flag
-                    ? (uint8_t)(device->ctrl_param.ctrl_type + 1U)
-                    : catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_DISABLE;
+  if (device->ctrl_param._enable_flag == 0U) {
+    output->state =
+        catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_DISABLE;
+  } else {
+    switch (device->ctrl_param.ctrl_type) {
+      case ROBOMAS_CTRL_POS:
+      case ROBOMAS_CTRL_POS_AW:
+        output->state =
+            catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_POSITION;
+        break;
+      case ROBOMAS_CTRL_VEL:
+      case ROBOMAS_CTRL_VEL_DOB:
+        output->state =
+            catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_VELOCITY;
+        break;
+      case ROBOMAS_CTRL_CURRENT:
+        output->state =
+            catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_CURRENT;
+        break;
+      default:
+        output->state =
+            catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_DISABLE;
+        break;
+    }
+  }
   output->unit_message_code = feedback->get_flag
                                 ? catch26_interface__msg__UrosF7MotorUnitFeedback__CODE_NORMAL
                                 : catch26_interface__msg__UrosF7MotorUnitFeedback__CODE_DISCONNECTION;
