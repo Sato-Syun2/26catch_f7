@@ -56,20 +56,6 @@
 #define MICROROS_COMMAND_NOMINAL_HZ   500U
 #define MICROROS_DIAGNOSTIC_PERIOD_MS 1000U
 
-<<<<<<< HEAD
-#define ROBSTRIDE_FAULT_MOTOR_OVERTEMPERATURE   (1UL << 0)
-#define ROBSTRIDE_FAULT_DRIVER_FAILURE          (1UL << 1)
-#define ROBSTRIDE_FAULT_UNDERVOLTAGE            (1UL << 2)
-#define ROBSTRIDE_FAULT_OVERVOLTAGE             (1UL << 3)
-#define ROBSTRIDE_FAULT_B_PHASE_OVERCURRENT     (1UL << 4)
-#define ROBSTRIDE_FAULT_C_PHASE_OVERCURRENT     (1UL << 5)
-#define ROBSTRIDE_FAULT_ENCODER_UNCALIBRATED    (1UL << 7)
-#define ROBSTRIDE_FAULT_OVERLOAD                (0xFFUL << 8)
-#define ROBSTRIDE_FAULT_A_PHASE_OVERCURRENT     (1UL << 16)
-#define ROBSTRIDE_WARNING_MOTOR_OVERTEMPERATURE (1UL << 0)
-
-=======
->>>>>>> Yasaki
 /* UrosF7Param.mode の共通値。3 は将来の自作位置制御用に予約する。 */
 #define MICROROS_MODE_POSITION        0U
 #define MICROROS_MODE_VELOCITY        1U
@@ -145,10 +131,6 @@ static uint32_t take_counter(volatile uint32_t *counter)
   __set_PRIMASK(primask);
   return value;
 }
-<<<<<<< HEAD
-=======
-
->>>>>>> Yasaki
 typedef enum {
   MICROROS_TARGET_ROBSTRIDE = 0,
   MICROROS_TARGET_ROBOMASTER = 1
@@ -350,8 +332,6 @@ static void set_parameter_response(
   response->message.size = message_size;
 }
 
-<<<<<<< HEAD
-=======
 static void invalidate_robstride_command(Robstride_DeviceInfo *device)
 {
   const uint32_t index = (uint32_t)(device - robstride_dev_info_global);
@@ -366,7 +346,6 @@ static void invalidate_robstride_command(Robstride_DeviceInfo *device)
   __set_PRIMASK(primask);
 }
 
->>>>>>> Yasaki
 static bool set_robstride_mode(Robstride_DeviceInfo *device, uint8_t mode)
 {
   ROBSTRIDE_CTRL_TYPE ctrl_type;
@@ -374,61 +353,9 @@ static bool set_robstride_mode(Robstride_DeviceInfo *device, uint8_t mode)
     return false;
   }
 
-<<<<<<< HEAD
-  if (Read_Robstride_FeedbackData(device).get_flag == 0U) {
-    return false;
-  }
-
-  /* SetControl はモード変更後にEnableするため、元のDisable状態を復元する。 */
-  const bool was_enabled = (device->ctrl_param._enable_flag != 0U);
-  const float hold_position = Read_Robstride_FeedbackData(device).position;
-
-  /* 先に無効化し、旧モードの値を新モードで解釈して一瞬動かさない。 */
-  Robstride_ControlDisable(device, microros_delay);
-  device->ctrl_param.ctrl_type = ctrl_type;
-  device->ctrl_param._target_value =
-      (ctrl_type == ROBSTRIDE_CTRL_POS) ? hold_position : 0.0f;
-  Robstride_WriteIntData(device, ADDR_RUN_MODE, (uint16_t)ctrl_type);
-  microros_delay(5U);
-  /* モード変更直後に古いLocRef/IqRefを使わせない。 */
-  Robstride_SetTarget(device, device->ctrl_param._target_value);
-  if (was_enabled) {
-    Robstride_ControlEnable(device, microros_delay);
-  }
-
-  /* 旧ROS目標は新モードへ持ち越さず、次の明示指令から再開する。 */
-  const uint32_t primask = __get_PRIMASK();
-  __disable_irq();
-  robstride_command_valid[device - robstride_dev_info_global] = false;
-  robstride_command_pending[device - robstride_dev_info_global] = false;
-  __set_PRIMASK(primask);
-  return true;
-}
-
-static void log_robstride_runtime(
-    Robstride_DeviceInfo *device,
-    const char *operation)
-{
-  /* サービス完了時に、ソフトフラグではなくモーターの応答値を読む。 */
-  Robstride_RequestReadParameter(device, ADDR_RUN_MODE);
-  Robstride_RequestReadParameter(device, ADDR_LOC_REF);
-  microros_delay(10U);
-  const Robstride_FeedbackData feedback = Read_Robstride_FeedbackData(device);
-  printf("[micro-ROS] Robstride ID %u %s: hw_status=%u run_mode=%u "
-         "loc_ref=%.6f rad pos=%.3f deg vel=%.3f current=%.3f\r\n",
-         (unsigned int)device->device_id,
-         operation,
-         (unsigned int)feedback.mode_status,
-         (unsigned int)feedback.run_mode,
-         (double)feedback.loc_ref,
-         (double)feedback.position,
-         (double)feedback.velocity,
-         (double)feedback.current);
-=======
   /* モード遷移中に旧ROS目標を低優先度CANへ再投入させない。 */
   invalidate_robstride_command(device);
   return Robstride_ServiceChangeControl(device, ctrl_type, microros_delay) != 0U;
->>>>>>> Yasaki
 }
 
 static bool set_robomas_mode(RoboMas_DeviceInfo *device, uint8_t mode)
@@ -462,14 +389,6 @@ static void parameter_service_callback(const void *request_msg,
     return;
   }
 
-<<<<<<< HEAD
-  printf("[micro-ROS] param request: target_size=%lu command_size=%lu data=%.3f\r\n",
-         (unsigned long)request->target.size,
-         (unsigned long)request->command.size,
-         (double)request->data);
-
-=======
->>>>>>> Yasaki
   if (!parse_motor_target(&request->target, &target_type, &device_id)) {
     set_parameter_response(response, false, "invalid target");
     return;
@@ -511,13 +430,6 @@ static void parameter_service_callback(const void *request_msg,
                            : set_robomas_mode(
                                &robomas_dev_info_global[device_index], mode);
     if (changed) {
-<<<<<<< HEAD
-      printf("[micro-ROS] %s ID %u mode=%u\r\n",
-             target_type == MICROROS_TARGET_ROBSTRIDE ? "Robstride" : "RoboMaster",
-             (unsigned int)device_id,
-             (unsigned int)mode);
-=======
->>>>>>> Yasaki
       set_parameter_response(response, true, "mode changed");
     } else {
       set_parameter_response(response, false, "mode change failed");
@@ -528,22 +440,11 @@ static void parameter_service_callback(const void *request_msg,
   /* Enable/Disable は data を参照しない。 */
   if (target_type == MICROROS_TARGET_ROBSTRIDE) {
     Robstride_DeviceInfo *device = &robstride_dev_info_global[device_index];
-<<<<<<< HEAD
-=======
     invalidate_robstride_command(device);
->>>>>>> Yasaki
     if (Read_Robstride_FeedbackData(device).get_flag == 0U) {
       set_parameter_response(response, false, "motor disconnected");
       return;
     }
-<<<<<<< HEAD
-    if (is_enable) {
-      Robstride_ControlEnable(device, microros_delay);
-    } else {
-      Robstride_ControlDisable(device, microros_delay);
-    }
-    log_robstride_runtime(device, is_enable ? "enabled" : "disabled");
-=======
     const uint8_t control_ok = is_enable
                                  ? Robstride_ControlEnable(device, microros_delay)
                                  : Robstride_ControlDisable(device, microros_delay);
@@ -552,7 +453,6 @@ static void parameter_service_callback(const void *request_msg,
                              is_enable ? "enable timeout" : "disable timeout");
       return;
     }
->>>>>>> Yasaki
   } else {
     RoboMas_DeviceInfo *device = &robomas_dev_info_global[device_index];
     if (is_enable) {
@@ -562,13 +462,6 @@ static void parameter_service_callback(const void *request_msg,
     }
   }
 
-<<<<<<< HEAD
-  printf("[micro-ROS] %s ID %u %s\r\n",
-         target_type == MICROROS_TARGET_ROBSTRIDE ? "Robstride" : "RoboMaster",
-         (unsigned int)device_id,
-         is_enable ? "enabled" : "disabled");
-=======
->>>>>>> Yasaki
   set_parameter_response(response, true, is_enable ? "enabled" : "disabled");
 }
 
@@ -850,62 +743,6 @@ void MicroRos_RefreshRobstrideTargets(void)
   }
 }
 
-<<<<<<< HEAD
-static void report_robstride_fault_events(void)
-{
-  uint8_t device_id;
-  uint32_t fault_value;
-  uint32_t warning_value;
-
-  while (Robstride_TakeFaultEvent(&device_id, &fault_value,
-                                  &warning_value)) {
-    if ((fault_value == 0U) && (warning_value == 0U)) {
-      printf("[Robstride] motor%u: fault cleared\r\n",
-             (unsigned int)device_id);
-      continue;
-    }
-
-    printf("[Robstride] motor%u fault=0x%08lx warning=0x%08lx:",
-           (unsigned int)device_id,
-           (unsigned long)fault_value,
-           (unsigned long)warning_value);
-
-    if ((fault_value & ROBSTRIDE_FAULT_MOTOR_OVERTEMPERATURE) != 0U) {
-      printf(" Motor over temperature fault;");
-    }
-    if ((fault_value & ROBSTRIDE_FAULT_DRIVER_FAILURE) != 0U) {
-      printf(" Driver chip failure;");
-    }
-    if ((fault_value & ROBSTRIDE_FAULT_UNDERVOLTAGE) != 0U) {
-      printf(" Undervoltage fault;");
-    }
-    if ((fault_value & ROBSTRIDE_FAULT_OVERVOLTAGE) != 0U) {
-      printf(" Overvoltage fault;");
-    }
-    if ((fault_value & ROBSTRIDE_FAULT_B_PHASE_OVERCURRENT) != 0U) {
-      printf(" B-phase current sampling overcurrent;");
-    }
-    if ((fault_value & ROBSTRIDE_FAULT_C_PHASE_OVERCURRENT) != 0U) {
-      printf(" C-phase current sampling overcurrent;");
-    }
-    if ((fault_value & ROBSTRIDE_FAULT_ENCODER_UNCALIBRATED) != 0U) {
-      printf(" Encoder not calibrated;");
-    }
-    if ((fault_value & ROBSTRIDE_FAULT_OVERLOAD) != 0U) {
-      printf(" Overload fault;");
-    }
-    if ((fault_value & ROBSTRIDE_FAULT_A_PHASE_OVERCURRENT) != 0U) {
-      printf(" A-phase current sampling overcurrent;");
-    }
-    if ((warning_value & ROBSTRIDE_WARNING_MOTOR_OVERTEMPERATURE) != 0U) {
-      printf(" Motor over temperature warning;");
-    }
-    printf("\r\n");
-  }
-}
-
-=======
->>>>>>> Yasaki
 void MicroRos_ReportDiagnostics(void)
 {
   const uint32_t now = HAL_GetTick();
@@ -925,19 +762,11 @@ void MicroRos_ReportDiagnostics(void)
   const uint32_t received = take_counter(&microros_command_received_count);
   const uint32_t coalesced = take_counter(&microros_command_coalesced_count);
   const uint32_t ring_overrun = Robstride_TakeTxRingOverrunCount();
-<<<<<<< HEAD
-=======
   const uint32_t priority_queue_full = Robstride_TakePriorityQueueFullCount();
->>>>>>> Yasaki
   const uint32_t tx_errors = Robstride_TakeTxErrorCount();
   const uint32_t can_errors = Robstride_TakeCanErrorCount();
   const uint32_t can_error_code = Robstride_TakeCanErrorCode();
 
-<<<<<<< HEAD
-  report_robstride_fault_events();
-
-=======
->>>>>>> Yasaki
   if (received > MICROROS_COMMAND_NOMINAL_HZ || coalesced > 0U) {
     printf("Warning: uros_f7_command overload: %lu callbacks/s, "
            "coalesced=%lu; latest-value control continues\r\n",
@@ -945,13 +774,6 @@ void MicroRos_ReportDiagnostics(void)
            (unsigned long)coalesced);
   }
 
-<<<<<<< HEAD
-  if (ring_overrun > 0U || tx_errors > 0U || can_errors > 0U ||
-      can_error_code != HAL_CAN_ERROR_NONE) {
-    printf("Warning: Robstride CAN congestion: ring_overrun=%lu, "
-           "tx_errors=%lu, can_events=%lu, code=0x%08lx; continuing\r\n",
-           (unsigned long)ring_overrun,
-=======
   if (ring_overrun > 0U || priority_queue_full > 0U || tx_errors > 0U ||
       can_errors > 0U ||
       can_error_code != HAL_CAN_ERROR_NONE) {
@@ -960,7 +782,6 @@ void MicroRos_ReportDiagnostics(void)
            "code=0x%08lx; continuing\r\n",
            (unsigned long)ring_overrun,
            (unsigned long)priority_queue_full,
->>>>>>> Yasaki
            (unsigned long)tx_errors,
            (unsigned long)can_errors,
            (unsigned long)can_error_code);
@@ -1010,19 +831,11 @@ static void set_robstride_feedback(
 
   output->info.type = catch26_interface__msg__DeviceInfo__TYPE_ROBSTRIDE;
   output->info.id = device->device_id;
-<<<<<<< HEAD
-  output->position = feedback->position;
-  output->velocity = feedback->velocity;
-  output->current = feedback->current;
-  output->state = robstride_state(device, feedback);
-  output->unit_message_code = feedback->get_flag
-=======
   output->position = feedback.position;
   output->velocity = feedback.velocity;
   output->current = feedback.current;
   output->state = robstride_state(device, &feedback);
   output->unit_message_code = feedback.get_flag
->>>>>>> Yasaki
                                   ? catch26_interface__msg__UrosF7MotorUnitFeedback__CODE_NORMAL
                                   : catch26_interface__msg__UrosF7MotorUnitFeedback__CODE_DISCONNECTION;
 }

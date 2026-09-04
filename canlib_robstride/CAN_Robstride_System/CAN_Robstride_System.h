@@ -61,7 +61,7 @@ void Robstride_SetCANID(Robstride_DeviceInfo *device_info, uint8_t new_id);
 void Robstride_ProcessParameter(const uint8_t rxData[], uint8_t device_id);
 void Robstride_ProcessParameterFrame(uint32_t ExtID, const uint8_t rxData[], uint8_t device_id);
 
-void Robstride_ProcessFault(const uint8_t rxData[], uint32_t extended_id);
+void Robstride_ProcessFault(const uint8_t rxData[], uint8_t device_id);
 
 void Robstride_RequestReadParameter(Robstride_DeviceInfo *device_info, uint16_t address);
 

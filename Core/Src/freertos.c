@@ -166,6 +166,15 @@ void MX_FREERTOS_Init(void) {
   osThreadStaticDef(MROSTask, StartMROSTask, osPriorityNormal, 0, 4096, defaultTaskBuffer, &defaultTaskControlBlock);
   MROSTaskHandle = osThreadCreate(osThread(MROSTask), NULL);
 
+  osThreadStaticDef(CanDevicesTask,
+                    StartCanDevicesTask,
+                    osPriorityNormal,
+                    0,
+                    1024,
+                    CanDevicesTaskBuffer,
+                    &CanDevicesTaskControlBlock);
+  CanDevicesTaskHandle = osThreadCreate(osThread(CanDevicesTask), NULL);
+
 
   osThreadStaticDef(RobstrideTask,
                     StartRobstrideTask,
@@ -333,22 +342,6 @@ void StartRobomasTask(void const * argument)
 {
   /* USER CODE BEGIN StartRobomasTask */
 #if ROBOMAS_C610_COUNT > 0U
-  printf("Calibration...\r\n");
-  RoboMas_Calibration(&robomas_dev_info_global[0],
-                      -10.0f,
-                      ROBOMAS_SWITCH_NO,
-                      sensor2_GPIO_Port,
-                      sensor2_Pin,
-                      &hcan2);
-#if ROBOMAS_C610_COUNT > 1U
-  printf("Calibration 2...\r\n");
-  RoboMas_Calibration(&robomas_dev_info_global[1],
-                      -5.0f,
-                      ROBOMAS_SWITCH_NO,
-                      sensor1_GPIO_Port,
-                      sensor1_Pin,
-                      &hcan2);
-#endif
   bool calibration_first_done_printed = false;
 #if ROBOMAS_C610_COUNT > 1U
   bool calibration_second_done_printed = false;
@@ -378,19 +371,21 @@ void StartRobomasTask(void const * argument)
   RoboMas_Calibration(&robomas_dev_info_global[0],
                       -40.0f,
                       ROBOMAS_SWITCH_NO,
-                      sensor1_GPIO_Port,
-                      sensor1_Pin,
+                      sensor2_GPIO_Port,
+                      sensor2_Pin,
                       &hcan2);
 #if ROBOMAS_C610_COUNT > 1U
   /* Imported from Ohmori's completed C610 ID4 calibration flow. */
   RoboMas_Calibration(&robomas_dev_info_global[1],
                       -40.0f,
                       ROBOMAS_SWITCH_NO,
-                      sensor2_GPIO_Port,
-                      sensor2_Pin,
+                      sensor1_GPIO_Port,
+                      sensor1_Pin,
                       &hcan2);
 #endif
 #endif
+
+  TickType_t robomas_last_wake_time = xTaskGetTickCount();
 
   for (;;) {
 #if ROBOMAS_DEVICE_COUNT > 0U

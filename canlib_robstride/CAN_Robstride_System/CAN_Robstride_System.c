@@ -103,56 +103,6 @@ static uint32_t robstride_take_error_code(void)
     return value;
 }
 
-static uint32_t robstride_take_counter(volatile uint32_t *counter)
-{
-    const uint32_t primask = __get_PRIMASK();
-    uint32_t value;
-
-    __disable_irq();
-    value = *counter;
-    *counter = 0U;
-    __set_PRIMASK(primask);
-    return value;
-}
-static uint32_t robstride_take_error_code(void)
-{
-    const uint32_t primask = __get_PRIMASK();
-    uint32_t value;
-
-    __disable_irq();
-    value = robstride_can_error_code;
-    robstride_can_error_code = HAL_CAN_ERROR_NONE;
-    __set_PRIMASK(primask);
-    return value;
-}
-
-static uint32_t robstride_unpack_u32_le(const uint8_t bytes[4])
-{
-    return ((uint32_t)bytes[0]) |
-           ((uint32_t)bytes[1] << 8) |
-           ((uint32_t)bytes[2] << 16) |
-           ((uint32_t)bytes[3] << 24);
-}
-
-static uint8_t robstride_resolve_fault_device_id(const uint32_t extended_id)
-{
-    const uint8_t low_id = (uint8_t)(extended_id & 0xFFU);
-    const uint8_t middle_id = (uint8_t)((extended_id >> 8) & 0xFFU);
-
-    /*
-     * 故障フレームのIDフィールドはRobStrideの機種により異なるため、
-     * 本アプリケーションに登録されたIDと一致するフィールドを優先する。
-     */
-    if (robstride_registered_device[low_id] != 0U) {
-        return low_id;
-    }
-    if (robstride_registered_device[middle_id] != 0U) {
-        return middle_id;
-    }
-
-    /* 未登録のフレームは下位IDをそのまま診断表示に使用する。 */
-    return low_id;
-}
 
 // Functions --------------------------------
 
@@ -597,70 +547,6 @@ uint32_t Robstride_TakeCanErrorCount(void)
 uint32_t Robstride_TakeCanErrorCode(void)
 {
     return robstride_take_error_code();
-}
-
-void Robstride_WhenCANErrorCallbackCalled(CAN_HandleTypeDef *const phcan)
-{
-    if (_robstride_phcan_global != phcan) return;
-
-    const uint32_t can_error = HAL_CAN_GetError(phcan);
-    const uint32_t primask = __get_PRIMASK();
-    __disable_irq();
-    ++robstride_can_error_count;
-    robstride_can_error_code |= can_error;
-    (void)HAL_CAN_ResetError(phcan);
-    __set_PRIMASK(primask);
-
-    /* A mailbox may have become available after an aborted/error frame. */
-    (void)_Robstride_PopSendTx8Bytes(phcan, &robstride_can_buf_ring1);
-}
-
-uint32_t Robstride_TakeTxRingOverrunCount(void)
-{
-    return robstride_take_counter(&robstride_tx_ring_overrun_count);
-}
-
-uint32_t Robstride_TakeTxErrorCount(void)
-{
-    return robstride_take_counter(&robstride_tx_error_count);
-}
-
-uint32_t Robstride_TakeCanErrorCount(void)
-{
-    return robstride_take_counter(&robstride_can_error_count);
-}
-
-uint32_t Robstride_TakeCanErrorCode(void)
-{
-    return robstride_take_error_code();
-}
-
-bool Robstride_TakeFaultEvent(uint8_t *const device_id,
-                              uint32_t *const fault_value,
-                              uint32_t *const warning_value)
-{
-    if ((device_id == NULL) || (fault_value == NULL) ||
-        (warning_value == NULL)) {
-        return false;
-    }
-
-    const uint32_t primask = __get_PRIMASK();
-    bool found = false;
-
-    __disable_irq();
-    for (uint32_t i = 0U; i < ROBSTRIDE_FAULT_ID_COUNT; ++i) {
-        if (robstride_fault_pending[i] != 0U) {
-            *device_id = (uint8_t)i;
-            *fault_value = robstride_fault_value[i];
-            *warning_value = robstride_warning_value[i];
-            robstride_fault_pending[i] = 0U;
-            found = true;
-            break;
-        }
-    }
-    __set_PRIMASK(primask);
-
-    return found;
 }
 
 void Get_Robstride_MCUID(const uint8_t rxData[], uint8_t device_id) {
@@ -1271,7 +1157,6 @@ void Robstride_ProcessFault(const uint8_t rxData[], const uint8_t device_id) {
     if ((warning_code & 0x00000001U) != 0U) {
         printf("motor%d:Motor over temperature warning\n\r", (int)device_id);
     }
-    __set_PRIMASK(primask);
 }
 
 void Robstride_fb_init(Robstride_DeviceInfo *const device_info) {
