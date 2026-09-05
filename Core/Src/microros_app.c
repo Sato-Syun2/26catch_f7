@@ -56,11 +56,13 @@
 #define MICROROS_COMMAND_NOMINAL_HZ   500U
 #define MICROROS_DIAGNOSTIC_PERIOD_MS 1000U
 
-/* UrosF7Param.mode の共通値。3 は将来の自作位置制御用に予約する。 */
+/* UrosF7Param.mode の共通値。速度系の拡張モードもサービスから選択できる。 */
 #define MICROROS_MODE_POSITION        0U
 #define MICROROS_MODE_VELOCITY        1U
 #define MICROROS_MODE_CURRENT         2U
-#define MICROROS_MODE_CUSTOM_POSITION 3U
+#define MICROROS_MODE_POSITION_AW     3U
+#define MICROROS_MODE_VELOCITY_DOB    4U
+#define MICROROS_MODE_MAX             MICROROS_MODE_VELOCITY_DOB
 
 /* custom transport / allocator は micro_ros_stm32cubemx_utils 側で実装する。 */
 bool cubemx_transport_open(struct uxrCustomTransport *transport);
@@ -107,6 +109,13 @@ static catch26_interface__msg__UrosF7MotorUnitCommand
     robstride_commands[ROBSTRIDE_DEVICE_STORAGE_COUNT];
 static volatile bool robstride_command_valid[ROBSTRIDE_DEVICE_STORAGE_COUNT];
 static volatile bool robstride_command_pending[ROBSTRIDE_DEVICE_STORAGE_COUNT];
+static volatile uint32_t
+    robstride_command_last_tick[ROBSTRIDE_DEVICE_STORAGE_COUNT];
+static volatile uint32_t
+    robomas_command_last_tick[ROBOMAS_DEVICE_STORAGE_COUNT];
+/* まだAgentへ接続していない場合も、ROS指令なしとして安全側へ倒す。 */
+static volatile bool microros_command_watchdog_initialized = true;
+static volatile bool microros_control_transaction_active = false;
 
 /* 受信コールバックでは数えるだけにし、UART出力は低頻度のタスク側で行う。 */
 static volatile uint32_t microros_command_received_count = 0U;
@@ -120,6 +129,15 @@ static void parameter_service_callback(const void *request_msg,
                                        void *response_msg);
 static void feedback_timer_callback(rcl_timer_t *timer, int64_t last_call_time);
 
+static bool begin_control_transaction(void);
+static void end_control_transaction(void);
+static void reset_robstride_command_watchdog(uint32_t index);
+static void reset_robomas_command_watchdog(uint32_t index);
+static bool command_watchdog_expired(const volatile uint32_t *last_tick,
+                                     uint32_t now);
+static bool robstride_timeout_mode(ROBSTRIDE_CTRL_TYPE ctrl_type);
+static bool robomas_timeout_mode(ROBOMAS_CTRL_TYPE ctrl_type);
+
 static uint32_t take_counter(volatile uint32_t *counter)
 {
   const uint32_t primask = __get_PRIMASK();
@@ -131,6 +149,88 @@ static uint32_t take_counter(volatile uint32_t *counter)
   __set_PRIMASK(primask);
   return value;
 }
+
+static bool begin_control_transaction(void)
+{
+  const uint32_t primask = __get_PRIMASK();
+  bool acquired;
+
+  __disable_irq();
+  acquired = !microros_control_transaction_active;
+  if (acquired) {
+    microros_control_transaction_active = true;
+  }
+  __set_PRIMASK(primask);
+  return acquired;
+}
+
+static void end_control_transaction(void)
+{
+  const uint32_t primask = __get_PRIMASK();
+
+  __disable_irq();
+  microros_control_transaction_active = false;
+  __set_PRIMASK(primask);
+}
+
+static bool command_watchdog_expired(const volatile uint32_t *last_tick,
+                                     const uint32_t now)
+{
+  const uint32_t primask = __get_PRIMASK();
+  uint32_t previous_tick;
+  bool initialized;
+
+  __disable_irq();
+  initialized = microros_command_watchdog_initialized;
+  previous_tick = *last_tick;
+  __set_PRIMASK(primask);
+
+  return initialized &&
+         ((uint32_t)(now - previous_tick) >= MICROROS_COMMAND_TIMEOUT_MS);
+}
+
+static void reset_robstride_command_watchdog(const uint32_t index)
+{
+  if (index >= ROBSTRIDE_DEVICE_COUNT) {
+    return;
+  }
+
+  const uint32_t now = HAL_GetTick();
+  const uint32_t primask = __get_PRIMASK();
+
+  __disable_irq();
+  robstride_command_last_tick[index] = now;
+  __set_PRIMASK(primask);
+}
+
+static void reset_robomas_command_watchdog(const uint32_t index)
+{
+  if (index >= ROBOMAS_DEVICE_COUNT) {
+    return;
+  }
+
+  const uint32_t now = HAL_GetTick();
+  const uint32_t primask = __get_PRIMASK();
+
+  __disable_irq();
+  robomas_command_last_tick[index] = now;
+  __set_PRIMASK(primask);
+}
+
+static bool robstride_timeout_mode(const ROBSTRIDE_CTRL_TYPE ctrl_type)
+{
+  return ctrl_type == ROBSTRIDE_CTRL_VEL ||
+         ctrl_type == ROBSTRIDE_CTRL_VEL_DOB ||
+         ctrl_type == ROBSTRIDE_CTRL_CURRENT;
+}
+
+static bool robomas_timeout_mode(const ROBOMAS_CTRL_TYPE ctrl_type)
+{
+  return ctrl_type == ROBOMAS_CTRL_VEL ||
+         ctrl_type == ROBOMAS_CTRL_VEL_DOB ||
+         ctrl_type == ROBOMAS_CTRL_CURRENT;
+}
+
 typedef enum {
   MICROROS_TARGET_ROBSTRIDE = 0,
   MICROROS_TARGET_ROBOMASTER = 1
@@ -255,7 +355,7 @@ static int find_robomas_device_by_id(uint8_t device_id)
 
 static bool parse_mode_data(float data, uint8_t *mode)
 {
-  if (!isfinite(data) || data < 0.0f || data > (float)MICROROS_MODE_CUSTOM_POSITION) {
+  if (!isfinite(data) || data < 0.0f || data > (float)MICROROS_MODE_MAX) {
     return false;
   }
 
@@ -279,6 +379,9 @@ static bool map_robstride_mode(uint8_t mode, ROBSTRIDE_CTRL_TYPE *ctrl_type)
     case MICROROS_MODE_CURRENT:
       *ctrl_type = ROBSTRIDE_CTRL_CURRENT;
       return true;
+    case MICROROS_MODE_VELOCITY_DOB:
+      *ctrl_type = ROBSTRIDE_CTRL_VEL_DOB;
+      return true;
     default:
       return false;
   }
@@ -295,6 +398,12 @@ static bool map_robomas_mode(uint8_t mode, ROBOMAS_CTRL_TYPE *ctrl_type)
       return true;
     case MICROROS_MODE_CURRENT:
       *ctrl_type = ROBOMAS_CTRL_CURRENT;
+      return true;
+    case MICROROS_MODE_POSITION_AW:
+      *ctrl_type = ROBOMAS_CTRL_POS_AW;
+      return true;
+    case MICROROS_MODE_VELOCITY_DOB:
+      *ctrl_type = ROBOMAS_CTRL_VEL_DOB;
       return true;
     default:
       return false;
@@ -349,13 +458,20 @@ static void invalidate_robstride_command(Robstride_DeviceInfo *device)
 static bool set_robstride_mode(Robstride_DeviceInfo *device, uint8_t mode)
 {
   ROBSTRIDE_CTRL_TYPE ctrl_type;
+  bool changed;
+
   if (!map_robstride_mode(mode, &ctrl_type)) {
     return false;
   }
 
   /* モード遷移中に旧ROS目標を低優先度CANへ再投入させない。 */
   invalidate_robstride_command(device);
-  return Robstride_ServiceChangeControl(device, ctrl_type, microros_delay) != 0U;
+  changed = Robstride_ServiceChangeControl(device, ctrl_type, microros_delay) != 0U;
+  if (changed && robstride_timeout_mode(ctrl_type)) {
+    reset_robstride_command_watchdog(
+        (uint32_t)(device - robstride_dev_info_global));
+  }
+  return changed;
 }
 
 static bool set_robomas_mode(RoboMas_DeviceInfo *device, uint8_t mode)
@@ -369,6 +485,10 @@ static bool set_robomas_mode(RoboMas_DeviceInfo *device, uint8_t mode)
   RoboMas_ChangeControl(device, ctrl_type);
   if (was_enabled) {
     RoboMas_ControlEnable(device);
+  }
+  if (robomas_timeout_mode(ctrl_type)) {
+    reset_robomas_command_watchdog(
+        (uint32_t)(device - robomas_dev_info_global));
   }
   return true;
 }
@@ -397,7 +517,15 @@ static void parameter_service_callback(const void *request_msg,
   const bool is_mode = ros_string_equals_literal(&request->command, "mode");
   const bool is_enable = ros_string_equals_literal(&request->command, "enable");
   const bool is_disable = ros_string_equals_literal(&request->command, "disable");
-  if (!is_mode && !is_enable && !is_disable) {
+  const bool is_position_aw =
+      ros_string_equals_literal(&request->command, "position_aw") ||
+      ros_string_equals_literal(&request->command, "pos_aw") ||
+      ros_string_equals_literal(&request->command, "posision_aw");
+  const bool is_velocity_dob =
+      ros_string_equals_literal(&request->command, "velocity_dob") ||
+      ros_string_equals_literal(&request->command, "vel_dob");
+  if (!is_mode && !is_enable && !is_disable &&
+      !is_position_aw && !is_velocity_dob) {
     set_parameter_response(response, false, "invalid command");
     return;
   }
@@ -413,22 +541,29 @@ static void parameter_service_callback(const void *request_msg,
     return;
   }
 
-  if (is_mode) {
+  if (is_mode || is_position_aw || is_velocity_dob) {
     uint8_t mode;
-    if (!parse_mode_data(request->data, &mode)) {
-      set_parameter_response(response, false, "mode data must be integer 0..3");
-      return;
-    }
-    if (mode == MICROROS_MODE_CUSTOM_POSITION) {
-      set_parameter_response(response, false, "mode 3 is reserved");
-      return;
+    if (is_position_aw) {
+      mode = MICROROS_MODE_POSITION_AW;
+    } else if (is_velocity_dob) {
+      mode = MICROROS_MODE_VELOCITY_DOB;
+    } else {
+      if (!parse_mode_data(request->data, &mode)) {
+        set_parameter_response(response, false, "mode data must be integer 0..4");
+        return;
+      }
     }
 
+    if (!begin_control_transaction()) {
+      set_parameter_response(response, false, "control busy");
+      return;
+    }
     const bool changed = (target_type == MICROROS_TARGET_ROBSTRIDE)
                            ? set_robstride_mode(
                                &robstride_dev_info_global[device_index], mode)
                            : set_robomas_mode(
                                &robomas_dev_info_global[device_index], mode);
+    end_control_transaction();
     if (changed) {
       set_parameter_response(response, true, "mode changed");
     } else {
@@ -438,20 +573,24 @@ static void parameter_service_callback(const void *request_msg,
   }
 
   /* Enable/Disable は data を参照しない。 */
+  if (!begin_control_transaction()) {
+    set_parameter_response(response, false, "control busy");
+    return;
+  }
+
+  const char *operation_error = NULL;
   if (target_type == MICROROS_TARGET_ROBSTRIDE) {
     Robstride_DeviceInfo *device = &robstride_dev_info_global[device_index];
     invalidate_robstride_command(device);
     if (Read_Robstride_FeedbackData(device).get_flag == 0U) {
-      set_parameter_response(response, false, "motor disconnected");
-      return;
-    }
-    const uint8_t control_ok = is_enable
-                                 ? Robstride_ControlEnable(device, microros_delay)
-                                 : Robstride_ControlDisable(device, microros_delay);
-    if (!control_ok) {
-      set_parameter_response(response, false,
-                             is_enable ? "enable timeout" : "disable timeout");
-      return;
+      operation_error = "motor disconnected";
+    } else {
+      const uint8_t control_ok =
+          is_enable ? Robstride_ControlEnable(device, microros_delay)
+                    : Robstride_ControlDisable(device, microros_delay);
+      if (!control_ok) {
+        operation_error = is_enable ? "enable timeout" : "disable timeout";
+      }
     }
   } else {
     RoboMas_DeviceInfo *device = &robomas_dev_info_global[device_index];
@@ -462,6 +601,19 @@ static void parameter_service_callback(const void *request_msg,
     }
   }
 
+  end_control_transaction();
+  if (operation_error != NULL) {
+    set_parameter_response(response, false, operation_error);
+    return;
+  }
+
+  if (is_enable) {
+    if (target_type == MICROROS_TARGET_ROBSTRIDE) {
+      reset_robstride_command_watchdog((uint32_t)device_index);
+    } else {
+      reset_robomas_command_watchdog((uint32_t)device_index);
+    }
+  }
   set_parameter_response(response, true, is_enable ? "enabled" : "disabled");
 }
 
@@ -660,6 +812,12 @@ static void remember_last_command(
 static void command_callback(const void *msgin)
 {
   const catch26_interface__msg__UrosF7Command *command = msgin;
+
+  if (command == NULL) {
+    return;
+  }
+
+  const uint32_t received_tick = HAL_GetTick();
   const size_t command_count = (command->command.size < MICROROS_MAX_MOTOR_UNITS)
                                  ? command->command.size
                                  : MICROROS_MAX_MOTOR_UNITS;
@@ -694,8 +852,14 @@ static void command_callback(const void *msgin)
       robstride_commands[robstride_index] = *unit;
       robstride_command_valid[robstride_index] = true;
       robstride_command_pending[robstride_index] = true;
+      robstride_command_last_tick[robstride_index] = received_tick;
       __set_PRIMASK(primask);
     } else if (robomas_index >= 0) {
+      const uint32_t primask = __get_PRIMASK();
+
+      __disable_irq();
+      robomas_command_last_tick[robomas_index] = received_tick;
+      __set_PRIMASK(primask);
       apply_robomas_command(&robomas_dev_info_global[robomas_index], unit);
     }
   }
@@ -762,6 +926,73 @@ void MicroRos_RefreshRobstrideTargets(void)
                           robstride_command_target_value(
                               &robstride_dev_info_global[i], &command));
     }
+  }
+}
+
+void MicroRos_CheckRobstrideCommandTimeout(void)
+{
+  const uint32_t now = HAL_GetTick();
+
+  for (uint32_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
+    Robstride_DeviceInfo *const device = &robstride_dev_info_global[i];
+
+    if (!device->ctrl_param.ros_topic_timeout_enable ||
+        device->ctrl_param._enable_flag == 0U ||
+        !robstride_timeout_mode(device->ctrl_param.ctrl_type) ||
+        !command_watchdog_expired(&robstride_command_last_tick[i], now)) {
+      continue;
+    }
+
+    /* Disable／mode変更／EnableのCANトランザクションとは同時に実行しない。 */
+    if (!begin_control_transaction()) {
+      return;
+    }
+
+    if (device->ctrl_param.ros_topic_timeout_enable &&
+        device->ctrl_param._enable_flag != 0U &&
+        robstride_timeout_mode(device->ctrl_param.ctrl_type) &&
+        command_watchdog_expired(&robstride_command_last_tick[i], now)) {
+      invalidate_robstride_command(device);
+      printf("[micro-ROS] Robstride ID %u command timeout; disabled\r\n",
+             (unsigned int)device->device_id);
+      (void)Robstride_ControlDisable(device, microros_delay);
+    }
+
+    end_control_transaction();
+  }
+}
+
+void MicroRos_CheckRobomasCommandTimeout(void)
+{
+  const uint32_t now = HAL_GetTick();
+
+  for (uint32_t i = 0U; i < ROBOMAS_DEVICE_COUNT; ++i) {
+    RoboMas_DeviceInfo *const device = &robomas_dev_info_global[i];
+
+    if (!device->ctrl_param.ros_topic_timeout_enable ||
+        device->ctrl_param._enable_flag == 0U ||
+        device->ctrl_param._is_calibrating ||
+        !robomas_timeout_mode(device->ctrl_param.ctrl_type) ||
+        !command_watchdog_expired(&robomas_command_last_tick[i], now)) {
+      continue;
+    }
+
+    /* Disable／mode変更／EnableのCANトランザクションとは同時に実行しない。 */
+    if (!begin_control_transaction()) {
+      return;
+    }
+
+    if (device->ctrl_param.ros_topic_timeout_enable &&
+        device->ctrl_param._enable_flag != 0U &&
+        !device->ctrl_param._is_calibrating &&
+        robomas_timeout_mode(device->ctrl_param.ctrl_type) &&
+        command_watchdog_expired(&robomas_command_last_tick[i], now)) {
+      printf("[micro-ROS] RoboMaster ID %u command timeout; disabled\r\n",
+             (unsigned int)device->device_id);
+      RoboMas_ControlDisable(device);
+    }
+
+    end_control_transaction();
   }
 }
 
@@ -1011,6 +1242,7 @@ static bool initialize_messages(void)
 
 static void reset_command_state(void)
 {
+  const uint32_t now = HAL_GetTick();
   const uint32_t primask = __get_PRIMASK();
 
   __disable_irq();
@@ -1018,9 +1250,15 @@ static void reset_command_state(void)
     robstride_command_valid[i] = false;
     robstride_command_pending[i] = false;
     robstride_commands[i] = (catch26_interface__msg__UrosF7MotorUnitCommand){0};
+    robstride_command_last_tick[i] = now;
+  }
+  for (uint32_t i = 0U; i < ROBOMAS_DEVICE_STORAGE_COUNT; ++i) {
+    robomas_command_last_tick[i] = now;
   }
   microros_command_received_count = 0U;
   microros_command_coalesced_count = 0U;
+  microros_command_watchdog_initialized = true;
+  microros_control_transaction_active = false;
   __set_PRIMASK(primask);
 }
 

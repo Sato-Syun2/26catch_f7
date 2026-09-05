@@ -66,6 +66,8 @@ typedef struct {
     float velocity_limit_size;
     float quant_per_rot;
     float offset_pos;
+    /* ROS指令タイムアウトによる自動Disableを使用するかどうか。 */
+    bool ros_topic_timeout_enable;
     RoboMas_Actuator_VelocityDob_Parameters velocity_dob;
     RoboMas_Actuator_VelocityDob_State velocity_dob_state;
     // ↓ don't change

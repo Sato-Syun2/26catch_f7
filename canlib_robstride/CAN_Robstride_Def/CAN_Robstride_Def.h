@@ -7,6 +7,7 @@
 
 #include <Robstride_Control.h>
 #include "CAN_Robstride/Control/Actuator_VelocityDob.h"
+#include <stdbool.h>
 #include "stdint.h"
 #include "main.h"
 
@@ -62,6 +63,8 @@ typedef struct {
     float current_limit_size;  // Limit_Cur [A]
     float torque_limit_size;   // Limit_Torque
     float quant_per_rot;
+    /* ROS指令タイムアウトによる自動Disableを使用するかどうか。 */
+    bool ros_topic_timeout_enable;
     Robstride_Actuator_VelocityDob_Parameters velocity_dob;
     Robstride_Actuator_VelocityDob_State velocity_dob_state;
     // ↓ don't change

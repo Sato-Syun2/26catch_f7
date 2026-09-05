@@ -178,9 +178,11 @@ static void configure_robomas_common(RoboMas_DeviceInfo *device)
 
     ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_INTERNAL;
     ctrl->ctrl_type = ROBOMAS_CTRL_POS_AW;
+    /* ROS指令が止まったときの自動Disableをモーターごとに切り替える。 */
+    ctrl->ros_topic_timeout_enable = true;
     /* Imported from the Robomaster calibration branch. */
     ctrl->current_limit = ROBOMAS_LIMIT_ENABLE;
-    ctrl->velocity_limit = ROBOMAS_LIMIT_ENABLE;
+    ctrl->velocity_limit = ROBOMAS_LIMIT_DISABLE;
 }
 
 /* C610 #1（CAN ID 4）の設定。PID はここで個別に変更する。 */
@@ -312,7 +314,11 @@ static void configure_robstride_common(Robstride_DeviceInfo *device)
     Robstride_Ctrl_StructTypedef *ctrl = &device->ctrl_param;
 
     ctrl->use_internal_offset = ROBSTRIDE_USE_OFFSET_POS_INTERNAL;
-    ctrl->ctrl_type = ROBSTRIDE_CTRL_VEL_DOB;
+    ctrl->ctrl_type = ROBSTRIDE_CTRL_POS;
+    // ctrl->ctrl_type = ROBSTRIDE_CTRL_VEL_DOB;
+    /* ROS指令が止まったときの自動Disableをモーターごとに切り替える。 */
+    // ctrl->ros_topic_timeout_enable = true;
+    ctrl->ros_topic_timeout_enable = false;
     ctrl->velocity_limit = ROBSTRIDE_VELOCITY_LIMIT_ENABLE;
     ctrl->current_limit = ROBSTRIDE_CURRENT_LIMIT_ENABLE;
     ctrl->torque_limit = ROBSTRIDE_TORQUE_LIMIT_DISABLE;

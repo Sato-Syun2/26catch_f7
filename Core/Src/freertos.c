@@ -299,6 +299,8 @@ void StartRobstrideTask(void const * argument)
 
   uint8_t feedback_divider = 0U;
   for (;;) {
+    MicroRos_CheckRobstrideCommandTimeout();
+
     /* ROS受信とCAN送信を分離し、ここをRobstrideの制御周期にする。 */
     MicroRos_ApplyPendingRobstrideCommands();
     MicroRos_ReportDiagnostics();
@@ -384,6 +386,8 @@ void StartRobomasTask(void const * argument)
 
   for (;;) {
 #if ROBOMAS_DEVICE_COUNT > 0U
+    MicroRos_CheckRobomasCommandTimeout();
+
     RoboMas_SendRequest(robomas_dev_info_global,
                         num_of_robomas,
                         500.0f,

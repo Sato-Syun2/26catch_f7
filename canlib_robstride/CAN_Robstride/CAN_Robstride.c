@@ -901,6 +901,21 @@ static bool robstride_set_target_verified(Robstride_DeviceInfo *const device_inf
     bool success = false;
     const uint32_t transaction_start = HAL_GetTick();
 
+    if (device_info == NULL || !isfinite(target_value)) {
+        return false;
+    }
+
+    /* VEL_DOBは速度目標をF7側で処理するため、切替時は電流指令を0にする。 */
+    if (device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_VEL_DOB) {
+        device_info->ctrl_param._target_value = target_value;
+        device_info->ctrl_param._req_value = 0.0f;
+        Robstride_Actuator_VelocityDob_Reset(
+            &(device_info->ctrl_param.velocity_dob_state));
+        return Robstride_WriteFloatDataPriority(device_info,
+                                                ADDR_IQ_REF,
+                                                0.0f) == HAL_OK;
+    }
+
     if (!robstride_target_parameter(device_info,
                                     target_value,
                                     &address,
@@ -987,8 +1002,11 @@ uint8_t Robstride_ServiceChangeControl(Robstride_DeviceInfo *const dev_info,
                                        const ROBSTRIDE_CTRL_TYPE new_ctrl_type,
                                        DelayFunction_t f_delay)
 {
+    const uint8_t wire_ctrl_type = robstride_wire_control_type(new_ctrl_type);
+
     if (new_ctrl_type < ROBSTRIDE_CTRL_POS ||
-        new_ctrl_type > ROBSTRIDE_CTRL_CURRENT) {
+        (new_ctrl_type > ROBSTRIDE_CTRL_CURRENT &&
+         new_ctrl_type != ROBSTRIDE_CTRL_VEL_DOB)) {
         return 0U;
     }
 
@@ -1016,8 +1034,8 @@ uint8_t Robstride_ServiceChangeControl(Robstride_DeviceInfo *const dev_info,
      * Type 17 read of 0x7005 and an exact value check. */
     if (!robstride_write_int_verified(dev_info,
                                       ADDR_RUN_MODE,
-                                      (uint16_t)new_ctrl_type,
-                                      (uint8_t)new_ctrl_type,
+                                      (uint16_t)wire_ctrl_type,
+                                      wire_ctrl_type,
                                       f_delay)) {
         dev_info->ctrl_param._enable_flag = 0U;
         goto service_complete;
