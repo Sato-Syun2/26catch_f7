@@ -409,13 +409,23 @@ void Robstride_ClearPriorityTxQueue(CAN_HandleTypeDef *const phcan)
                                  CAN_TX_MAILBOX2);
 }
 
-void Robstride_RequestReadParameter(Robstride_DeviceInfo *const device_info, const uint16_t address) {
-    uint8_t can_data[8];
+HAL_StatusTypeDef Robstride_RequestReadParameter(Robstride_DeviceInfo *const device_info,
+                                                  const uint16_t address) {
+    if (device_info == NULL || device_info->phcan == NULL) {
+        return HAL_ERROR;
+    }
+
+    uint8_t can_data[8] = {0U};
     _Robstride_RegisterParameterMasterId(device_info);
     can_data[0] = address & 0x00FF;
     can_data[1] = address >> 8;
     uint16_t option = 0x00 << 8 | device_info->master_id;
-    (void)Robstride_SendBytes(device_info->phcan, device_info->device_id, CMD_RAM_READ, option, (uint8_t *)can_data, sizeof(can_data));
+    return Robstride_SendBytes(device_info->phcan,
+                               device_info->device_id,
+                               CMD_RAM_READ,
+                               option,
+                               can_data,
+                               sizeof(can_data));
 }
 
 HAL_StatusTypeDef Robstride_RequestReadParameterPriority(Robstride_DeviceInfo *const device_info,
@@ -433,12 +443,23 @@ HAL_StatusTypeDef Robstride_RequestReadParameterPriority(Robstride_DeviceInfo *c
                                        sizeof(can_data));
 }
 
-void Robstride_WriteFloatData(Robstride_DeviceInfo *const device_info, const uint16_t address, const float data) {
+HAL_StatusTypeDef Robstride_WriteFloatData(Robstride_DeviceInfo *const device_info,
+                                           const uint16_t address,
+                                           const float data) {
+    if (device_info == NULL || device_info->phcan == NULL || !isfinite(data)) {
+        return HAL_ERROR;
+    }
+
     uint8_t can_data[8] = { 0x00 };
     can_data[0] = address & 0x00FF;
     can_data[1] = address >> 8;
     memcpy(&can_data[4], &data, 4);
-    (void)Robstride_SendBytes(device_info->phcan, device_info->device_id, CMD_RAM_WRITE, device_info->master_id, (uint8_t *)can_data, sizeof(can_data));
+    return Robstride_SendBytes(device_info->phcan,
+                               device_info->device_id,
+                               CMD_RAM_WRITE,
+                               device_info->master_id,
+                               can_data,
+                               sizeof(can_data));
 }
 
 HAL_StatusTypeDef Robstride_WriteFloatDataPriority(Robstride_DeviceInfo *const device_info,

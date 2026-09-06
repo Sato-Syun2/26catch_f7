@@ -315,8 +315,8 @@ static void configure_robstride_common(Robstride_DeviceInfo *device)
     Robstride_Ctrl_StructTypedef *ctrl = &device->ctrl_param;
 
     ctrl->use_internal_offset = ROBSTRIDE_USE_OFFSET_POS_INTERNAL;
-    ctrl->ctrl_type = ROBSTRIDE_CTRL_POS;
-    // ctrl->ctrl_type = ROBSTRIDE_CTRL_CURRENT;
+    // ctrl->ctrl_type = ROBSTRIDE_CTRL_POS;
+    ctrl->ctrl_type = ROBSTRIDE_CTRL_CURRENT;
     // ctrl->ctrl_type = ROBSTRIDE_CTRL_VEL_DOB;
     /* ROS指令が止まったときの自動Disableをモーターごとに切り替える。 */
     ctrl->ros_topic_timeout_enable = false;
@@ -466,30 +466,54 @@ void CanDevices_InitAfterWait(DelayFunction_t delay_function)
         Robstride_DeviceInfo *const device = &robstride_dev_info_global[i];
         float initial_position;
 
-        Robstride_ControlDisable(device, delay_function);
+        const uint8_t disable_ok =
+            Robstride_ControlDisable(device, delay_function);
+        if (disable_ok == 0U) {
+            printf("[Robstride] ID %u startup disable not verified; continuing setup\r\n",
+                   (unsigned int)device->device_id);
+        }
         Robstride_SetPIDParams(device, delay_function);
-        /*
-         * パラメータ読出し応答が来ない個体でも、ここで起動を止めない。
-         * 設定値は個別設定済みかつ範囲内なので、書込みのみで反映する。
-         */
-        Robstride_WriteFloatData(device, ADDR_LIMIT_SPEED,
-                                 device->ctrl_param.velocity_limit_size);
+        /* 設定値を書き込み、読み返し確認できた個体だけを使用可能にする。 */
+        const HAL_StatusTypeDef speed_write_status =
+            Robstride_WriteFloatData(device,
+                                     ADDR_LIMIT_SPEED,
+                                     device->ctrl_param.velocity_limit_size);
         delay_function(10U);
-        Robstride_WriteFloatData(device, ADDR_LIMIT_CURRENT,
-                                 device->ctrl_param.current_limit_size);
+        const HAL_StatusTypeDef current_write_status =
+            Robstride_WriteFloatData(device,
+                                     ADDR_LIMIT_CURRENT,
+                                     device->ctrl_param.current_limit_size);
         delay_function(10U);
         /* 起動時に書き込んだ速度・電流リミットをモーターから読み返す。 */
-        Robstride_RequestReadParameter(device, ADDR_LIMIT_SPEED);
+        const HAL_StatusTypeDef speed_read_status =
+            Robstride_RequestReadParameter(device, ADDR_LIMIT_SPEED);
         delay_function(10U);
-        Robstride_RequestReadParameter(device, ADDR_LIMIT_CURRENT);
+        const HAL_StatusTypeDef current_read_status =
+            Robstride_RequestReadParameter(device, ADDR_LIMIT_CURRENT);
         delay_function(10U);
+        bool limits_ok = false;
         {
             const Robstride_FeedbackData applied_limits =
                 Read_Robstride_FeedbackData(device);
+            limits_ok =
+                speed_write_status == HAL_OK &&
+                current_write_status == HAL_OK &&
+                speed_read_status == HAL_OK &&
+                current_read_status == HAL_OK &&
+                isfinite(applied_limits.limit_spd) &&
+                isfinite(applied_limits.limit_cur) &&
+                fabsf(applied_limits.limit_spd -
+                      device->ctrl_param.velocity_limit_size) <= 0.001f &&
+                fabsf(applied_limits.limit_cur -
+                      device->ctrl_param.current_limit_size) <= 0.001f;
             printf("[Robstride] ID %u applied limits: speed=%.6f rad/s, current=%.6f A\r\n",
                    (unsigned int)device->device_id,
                    (double)applied_limits.limit_spd,
                    (double)applied_limits.limit_cur);
+        }
+        if (!limits_ok) {
+            printf("[Robstride] ID %u limit setup not verified; continuing mode setup\r\n",
+                   (unsigned int)device->device_id);
         }
         Robstride_SetTorqueLimit(device);
         delay_function(10U);
@@ -498,17 +522,18 @@ void CanDevices_InitAfterWait(DelayFunction_t delay_function)
             continue;
         }
 
-        /* micro-ROSの指令値と同じ度数法で、起動時の現在値を目標にする。 */
-        const float initial_target =
-            device->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_VEL_DOB
-                ? 0.0f
-                : initial_position;
-        robstride_target_value[i] = initial_target;
-        Robstride_SetTarget(device, initial_target);
+        /* 非ROSの現在位置をcurrent/velocity指令として送らない。 */
+        robstride_target_value[i] =
+            device->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS
+                ? initial_position
+                : 0.0f;
         /* 初期値取得後もEnableせず、最初のROS指令を待つ。 */
-        Robstride_SetControlDisabled(device,
-                                     device->ctrl_param.ctrl_type,
-                                     delay_function);
+        if (Robstride_SetControlDisabled(device,
+                                         device->ctrl_param.ctrl_type,
+                                         delay_function) == 0U) {
+            printf("[Robstride] ID %u run_mode setup failed; enable blocked\r\n",
+                   (unsigned int)device->device_id);
+        }
     }
 
     can_devices_initialized = true;

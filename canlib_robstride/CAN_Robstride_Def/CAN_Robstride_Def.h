@@ -71,6 +71,8 @@ typedef struct {
     float _target_value;
     float _req_value;
     uint8_t _enable_flag;
+    /* モーター側のrun_mode書き込みを読み返し確認できたか。 */
+    uint8_t _mode_configured;
 } Robstride_Ctrl_StructTypedef;
 
 typedef enum {

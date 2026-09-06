@@ -19,8 +19,8 @@
  */
 // #define ROBSTRIDE_DEVICE_0_TYPE Robstride_02
 // #define ROBSTRIDE_DEVICE_0_ID   2U
-#define ROBSTRIDE_DEVICE_0_TYPE Robstride_05_Edu
-#define ROBSTRIDE_DEVICE_0_ID   127U
+#define ROBSTRIDE_DEVICE_0_TYPE Robstride_05_Edu //DEBUG
+#define ROBSTRIDE_DEVICE_0_ID   127U //DEBUG
 #define ROBSTRIDE_DEVICE_1_TYPE Robstride_05_Edu
 #define ROBSTRIDE_DEVICE_1_ID   1U
 

@@ -673,8 +673,15 @@ static void parameter_service_callback(const void *request_msg,
   const char *operation_error = NULL;
   if (target_type == MICROROS_TARGET_ROBSTRIDE) {
     Robstride_DeviceInfo *device = &robstride_dev_info_global[device_index];
-    invalidate_robstride_command(device);
-    if (enabling && robstride_waiting_for_first_command[device_index]) {
+    /* Disableでは古い目標値を破棄する。Enableでは受信済みの最新値を
+     * 保持し、topicを1回送った後の再Enableでも適用できるようにする。 */
+    if (!enabling) {
+      invalidate_robstride_command(device);
+    }
+    /* topic受信直後は制御タスクがpendingを処理する前でもEnableを許可する。
+     * waitingフラグだけを見ると、受信済みなのにserviceが競合して拒否される。 */
+    if (enabling && robstride_waiting_for_first_command[device_index] &&
+        !robstride_command_valid[device_index]) {
       operation_error = "waiting for first ROS command";
     } else if (Read_Robstride_FeedbackData(device).get_flag == 0U) {
       operation_error = "motor disconnected";
@@ -982,6 +989,14 @@ void MicroRos_ApplyPendingRobstrideCommands(void)
       bool command_still_valid;
 
       /* 起動直後だけ、最初のROS指令をEnableの解禁条件にする。 */
+      if (waiting_for_first_command) {
+        /* 自動Enableが失敗しても、topic受信済みであることは確定している。
+         * 以後はEnable serviceで再試行できるよう、待機状態を解除する。 */
+        const uint32_t unlock_primask = __get_PRIMASK();
+        __disable_irq();
+        robstride_waiting_for_first_command[i] = false;
+        __set_PRIMASK(unlock_primask);
+      }
       if (waiting_for_first_command &&
           !enable_robstride_for_first_command(i)) {
         /* Enable失敗を同じ指令で自動再試行しない。次のROS指令を受信
