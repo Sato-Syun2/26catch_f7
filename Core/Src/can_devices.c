@@ -315,9 +315,8 @@ static void configure_robstride_common(Robstride_DeviceInfo *device)
 
     ctrl->use_internal_offset = ROBSTRIDE_USE_OFFSET_POS_INTERNAL;
     ctrl->ctrl_type = ROBSTRIDE_CTRL_POS;
-    // ctrl->ctrl_type = ROBSTRIDE_CTRL_VEL_DOB;
+    // ctrl->ctrl_type = ROBSTRIDE_CTRL_CURRENT;
     /* ROS指令が止まったときの自動Disableをモーターごとに切り替える。 */
-    // ctrl->ros_topic_timeout_enable = true;
     ctrl->ros_topic_timeout_enable = false;
     ctrl->velocity_limit = ROBSTRIDE_VELOCITY_LIMIT_ENABLE;
     ctrl->current_limit = ROBSTRIDE_CURRENT_LIMIT_ENABLE;
@@ -457,7 +456,7 @@ void CanDevices_InitBeforeWait(CAN_HandleTypeDef *robomas_can,
 
 void CanDevices_InitAfterWait(DelayFunction_t delay_function)
 {
-    /* 接続確認後、停止状態で全パラメータを反映してから制御を有効化する。 */
+    /* 接続確認後、ROS初回指令まではDisable状態のまま全パラメータを反映する。 */
     Robstride_WaitForConnect(robstride_dev_info_global,
                              ROBSTRIDE_DEVICE_COUNT,
                              delay_function);
@@ -504,7 +503,10 @@ void CanDevices_InitAfterWait(DelayFunction_t delay_function)
                 : initial_position;
         robstride_target_value[i] = initial_target;
         Robstride_SetTarget(device, initial_target);
-        Robstride_SetControl(device, device->ctrl_param.ctrl_type, delay_function);
+        /* 初期値取得後もEnableせず、最初のROS指令を待つ。 */
+        Robstride_SetControlDisabled(device,
+                                     device->ctrl_param.ctrl_type,
+                                     delay_function);
     }
 
     can_devices_initialized = true;

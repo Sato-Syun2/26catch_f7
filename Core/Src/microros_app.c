@@ -109,6 +109,9 @@ static catch26_interface__msg__UrosF7MotorUnitCommand
     robstride_commands[ROBSTRIDE_DEVICE_STORAGE_COUNT];
 static volatile bool robstride_command_valid[ROBSTRIDE_DEVICE_STORAGE_COUNT];
 static volatile bool robstride_command_pending[ROBSTRIDE_DEVICE_STORAGE_COUNT];
+/* 初期化後の最初のROS指令をEnableの解禁条件にする。 */
+static volatile bool
+    robstride_waiting_for_first_command[ROBSTRIDE_DEVICE_STORAGE_COUNT];
 static volatile uint32_t
     robstride_command_last_tick[ROBSTRIDE_DEVICE_STORAGE_COUNT];
 static volatile uint32_t
@@ -133,6 +136,8 @@ static bool begin_control_transaction(void);
 static void end_control_transaction(void);
 static void reset_robstride_command_watchdog(uint32_t index);
 static void reset_robomas_command_watchdog(uint32_t index);
+static bool enable_robstride_for_first_command(uint32_t index);
+static void microros_delay(uint32_t milliseconds);
 static bool command_watchdog_expired(const volatile uint32_t *last_tick,
                                      uint32_t now);
 static bool robstride_timeout_mode(ROBSTRIDE_CTRL_TYPE ctrl_type);
@@ -215,6 +220,32 @@ static void reset_robomas_command_watchdog(const uint32_t index)
   __disable_irq();
   robomas_command_last_tick[index] = now;
   __set_PRIMASK(primask);
+}
+
+static bool enable_robstride_for_first_command(const uint32_t index)
+{
+  Robstride_DeviceInfo *device;
+  uint8_t enabled;
+
+  if (index >= ROBSTRIDE_DEVICE_COUNT) {
+    return false;
+  }
+  device = &robstride_dev_info_global[index];
+  if (device->ctrl_param._enable_flag != 0U) {
+    return true;
+  }
+  if (!begin_control_transaction()) {
+    return false;
+  }
+
+  printf("[micro-ROS] Robstride ID %u first command; enabling\r\n",
+         (unsigned int)device->device_id);
+  enabled = Robstride_ControlEnable(device, microros_delay);
+  printf("[micro-ROS] Robstride ID %u first-command enable result=%u\r\n",
+         (unsigned int)device->device_id,
+         (unsigned int)enabled);
+  end_control_transaction();
+  return enabled != 0U;
 }
 
 static bool robstride_timeout_mode(const ROBSTRIDE_CTRL_TYPE ctrl_type)
@@ -582,7 +613,9 @@ static void parameter_service_callback(const void *request_msg,
   if (target_type == MICROROS_TARGET_ROBSTRIDE) {
     Robstride_DeviceInfo *device = &robstride_dev_info_global[device_index];
     invalidate_robstride_command(device);
-    if (Read_Robstride_FeedbackData(device).get_flag == 0U) {
+    if (is_enable && robstride_waiting_for_first_command[device_index]) {
+      operation_error = "waiting for first ROS command";
+    } else if (Read_Robstride_FeedbackData(device).get_flag == 0U) {
       operation_error = "motor disconnected";
     } else {
       const uint8_t control_ok =
@@ -870,11 +903,13 @@ void MicroRos_ApplyPendingRobstrideCommands(void)
   for (uint32_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
     catch26_interface__msg__UrosF7MotorUnitCommand command = {0};
     bool pending;
+    bool waiting_for_first_command;
     const uint32_t primask = __get_PRIMASK();
 
     /* pendingを先に消費してからCAN処理を行う。処理中の新着値は次周回へ残る。 */
     __disable_irq();
     pending = robstride_command_pending[i];
+    waiting_for_first_command = robstride_waiting_for_first_command[i];
     if (pending) {
       command = robstride_commands[i];
       robstride_command_pending[i] = false;
@@ -882,8 +917,36 @@ void MicroRos_ApplyPendingRobstrideCommands(void)
     __set_PRIMASK(primask);
 
     if (pending) {
-      apply_robstride_command(&robstride_dev_info_global[i],
-                              &command);
+      Robstride_DeviceInfo *const device = &robstride_dev_info_global[i];
+      bool command_still_valid;
+
+      /* 起動直後だけ、最初のROS指令をEnableの解禁条件にする。 */
+      if (waiting_for_first_command &&
+          !enable_robstride_for_first_command(i)) {
+        /* Enable失敗を同じ指令で自動再試行しない。次のROS指令を受信
+         * したときだけ、改めてEnableを試行する。 */
+        continue;
+      }
+
+      const uint32_t valid_primask = __get_PRIMASK();
+      __disable_irq();
+      command_still_valid = robstride_command_valid[i];
+      __set_PRIMASK(valid_primask);
+      if (!command_still_valid) {
+        continue;
+      }
+
+      if (waiting_for_first_command) {
+        const uint32_t unlock_primask = __get_PRIMASK();
+        __disable_irq();
+        robstride_waiting_for_first_command[i] = false;
+        __set_PRIMASK(unlock_primask);
+      }
+
+      /* タイムアウト後など、Enable service前の目標値は適用しない。 */
+      if (device->ctrl_param._enable_flag != 0U) {
+        apply_robstride_command(device, &command);
+      }
     }
   }
 }
@@ -914,14 +977,14 @@ void MicroRos_RefreshRobstrideTargets(void)
     }
     __set_PRIMASK(primask);
 
-    /* VEL_DOBは保持中の目標値でもSetTarget()を毎制御周期に通す。 */
-    if (velocity_dob) {
-      const float target = valid
-                               ? robstride_command_target_value(
-                                     &robstride_dev_info_global[i], &command)
-                               : robstride_dev_info_global[i].ctrl_param._target_value;
+    /* ROS指令を一度も受信していない間は目標値を適用しない。 */
+    if (velocity_dob && valid &&
+        robstride_dev_info_global[i].ctrl_param._enable_flag != 0U) {
+      const float target = robstride_command_target_value(
+          &robstride_dev_info_global[i], &command);
       Robstride_SetTarget(&robstride_dev_info_global[i], target);
-    } else if (valid && refresh_normal_targets) {
+    } else if (valid && refresh_normal_targets &&
+               robstride_dev_info_global[i].ctrl_param._enable_flag != 0U) {
       Robstride_SetTarget(&robstride_dev_info_global[i],
                           robstride_command_target_value(
                               &robstride_dev_info_global[i], &command));
@@ -1249,6 +1312,7 @@ static void reset_command_state(void)
   for (uint32_t i = 0U; i < ROBSTRIDE_DEVICE_STORAGE_COUNT; ++i) {
     robstride_command_valid[i] = false;
     robstride_command_pending[i] = false;
+    robstride_waiting_for_first_command[i] = true;
     robstride_commands[i] = (catch26_interface__msg__UrosF7MotorUnitCommand){0};
     robstride_command_last_tick[i] = now;
   }

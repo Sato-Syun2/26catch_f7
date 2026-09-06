@@ -276,24 +276,13 @@ static bool robstride_control_command_verified(Robstride_DeviceInfo *const devic
             const Robstride_FeedbackData feedback =
                 Read_Robstride_FeedbackData(device_info);
             if (feedback.mode_status == expected_state) {
-                /* Type 2 has no request/response token.  Follow it with a
-                 * service-only Type 17 read and require the echoed parameter
-                 * response, so a normal Type 1 -> Type 2 cannot complete the
-                 * transaction by itself. */
-                const uint32_t parameter_sequence =
-                    Robstride_GetParameterSequence(device_info, ADDR_RUN_MODE);
-                if (Robstride_RequestReadParameterPriority(device_info,
-                                                           ADDR_RUN_MODE) == HAL_OK &&
-                    robstride_wait_for_parameter(device_info,
-                                                 ADDR_RUN_MODE,
-                                                 parameter_sequence,
-                                                 HAL_GetTick(),
-                                                 f_delay) &&
-                    Read_Robstride_FeedbackData(device_info).run_mode <=
-                        (uint8_t)ROBSTRIDE_CTRL_CURRENT) {
-                    success = true;
-                    break;
-                }
+                /* Type 2のfeedbackは、送信直前のsequenceを基準にして
+                 * 送信後に受信したことを確認済みである。Enable/Disableの
+                 * 成否はmode_statusで確定し、別途Type 17のrun_mode読み出し
+                 * まで要求しない。Type 17応答を返さない個体でも、今回の
+                 * 制御命令そのものが成功している場合があるためである。 */
+                success = true;
+                break;
             }
         }
         f_delay(1U);
@@ -755,7 +744,12 @@ void Robstride_Calibration(Robstride_DeviceInfo *const device_info, float calib_
  * @param new_ctrl_type 新しい制御モード
  * @retval なし
  */
-void Robstride_SetControl(Robstride_DeviceInfo *const dev_info, const ROBSTRIDE_CTRL_TYPE new_ctrl_type, DelayFunction_t f_delay) {
+static void robstride_set_control_internal(
+    Robstride_DeviceInfo *const dev_info,
+    const ROBSTRIDE_CTRL_TYPE new_ctrl_type,
+    DelayFunction_t f_delay,
+    const bool enable_after_write)
+{
     const uint8_t wire_ctrl_type = robstride_wire_control_type(new_ctrl_type);
     /*
      * ctrl_type は設定値であり、モーター側の現在値ではない。起動時には
@@ -773,7 +767,23 @@ void Robstride_SetControl(Robstride_DeviceInfo *const dev_info, const ROBSTRIDE_
         dev_info->ctrl_param._enable_flag = 0U;
         return;
     }
-    (void)Robstride_ControlEnable(dev_info, f_delay);                         // モータ制御を有効化
+    if (enable_after_write) {
+        (void)Robstride_ControlEnable(dev_info, f_delay);                     // モータ制御を有効化
+    }
+}
+
+void Robstride_SetControl(Robstride_DeviceInfo *const dev_info,
+                          const ROBSTRIDE_CTRL_TYPE new_ctrl_type,
+                          DelayFunction_t f_delay)
+{
+    robstride_set_control_internal(dev_info, new_ctrl_type, f_delay, true);
+}
+
+void Robstride_SetControlDisabled(Robstride_DeviceInfo *const dev_info,
+                                  const ROBSTRIDE_CTRL_TYPE new_ctrl_type,
+                                  DelayFunction_t f_delay)
+{
+    robstride_set_control_internal(dev_info, new_ctrl_type, f_delay, false);
 }
 
 /**
@@ -971,12 +981,24 @@ static bool robstride_set_target_verified(Robstride_DeviceInfo *const device_inf
  * @retval なし
  */
 uint8_t Robstride_ControlEnable(Robstride_DeviceInfo *const dev_info, DelayFunction_t f_delay) {
+    printf("[Robstride] ID %u Enable request\r\n",
+           (unsigned int)dev_info->device_id);
     const uint8_t success = robstride_control_command_verified(
         dev_info,
         CMD_ENABLE,
         ROBSTRIDE_STATE_ENABLE,
         f_delay);
     dev_info->ctrl_param._enable_flag = (success != 0U) ? 1U : 0U;
+    {
+        const Robstride_FeedbackData feedback = Read_Robstride_FeedbackData(dev_info);
+        printf("[Robstride] ID %u Enable result=%u sw=%u feedback=%u mode=%u run_mode=%u\r\n",
+               (unsigned int)dev_info->device_id,
+               (unsigned int)success,
+               (unsigned int)dev_info->ctrl_param._enable_flag,
+               (unsigned int)feedback.get_flag,
+               (unsigned int)feedback.mode_status,
+               (unsigned int)feedback.run_mode);
+    }
     return success;
 }
 
