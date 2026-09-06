@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 
-/* Robstride用のF7側速度DOBパラメータ。速度の外部単位はrad/sへ変換して扱う。 */
+/* Robstride用の速度DOB制御器パラメータ。速度は内部でrad/sに変換して扱う。 */
 typedef struct {
     float J;
     float d;
@@ -14,44 +14,62 @@ typedef struct {
     float velocity_kd;
     float reference_alpha;
 
-    /* velocity_limitはrad/s、current_limitはA、torque_limitはNm。 */
-    float velocity_limit;
+    /* 速度指令上限はrad/s、電流上限はA、トルク上限はNm。 */
+    float velocity_reference_limit;
     float current_limit;
     float torque_limit;
-    /* falseの場合は無効。trueの場合は0.0も有効。torque_limitの負値は不正。 */
-    bool velocity_limit_enable;
+    /* falseは無効。trueなら0.0も有効値として扱う（トルク上限は負値不可）。 */
+    bool velocity_reference_limit_enable;
     bool current_limit_enable;
     bool torque_limit_enable;
     float velocity_unit_to_rad_s;
+
+    /*
+     * 設定上の公称周期[s]。実際の計算周期はUpdate()に渡すdtを使用する。
+     * 呼び出し側の周期設定と診断用の基準値として保持する。
+     */
     float control_period;
 } Robstride_Actuator_VelocityDob_Parameters;
 
 typedef struct {
-    /* 一次遅れreference modelの状態 [rad/s] */
+    /* 一次遅れ基準モデルの状態[rad/s]。 */
     float omega_model;
 
-    /* DOBのQ-filter状態 */
+    /* DOBのQフィルタ状態（トルク[Nm]、速度[rad/s]）。 */
     float dob_q_torque;
     float dob_q_velocity;
 
-    /* PI/PID状態 */
+    /* PI/PID状態。積分値の単位は速度偏差[rad/s]・s。 */
     float integral;
+    /* 前周期の速度偏差[rad/s]。 */
     float previous_error;
+    /* 前周期に実際に適用した電流指令[A]。 */
     float previous_current;
 
-    /* 実験・デバッグ用の計算結果 */
+    /* 外乱トルク推定値[Nm]。 */
     float disturbance_estimate;
+    /* 基準モデル由来のフィードフォワードトルク[Nm]。 */
     float feedforward_torque;
+    /* PIDのフィードバックトルク[Nm]。 */
     float feedback_torque;
+    /* disturbance_estimateと同じ値を保持する互換用フィールド[Nm]。 */
     float dob_torque;
+    /* 出力上限適用前の合成トルク[Nm]。 */
     float unsaturated_torque;
+    /* 出力上限適用後のトルク[Nm]。 */
     float final_torque;
+    /* 実際に返す電流指令[A]。 */
     float final_current;
+    /* 一次遅れQフィルタの係数。DOB無効時はdob_beta=1.0。 */
     float dob_beta;
+    /* 一次遅れ基準モデルの係数。モデル無効時はreference_beta=0.0。 */
     float reference_beta;
 
+    /* 初回更新済みフラグ。 */
     bool initialized;
+    /* unsaturated_torqueが上限でクリップされたか。 */
     bool output_saturated;
+    /* 飽和をさらに進める積分を停止したか。 */
     bool anti_windup_active;
 } Robstride_Actuator_VelocityDob_State;
 

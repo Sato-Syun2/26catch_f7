@@ -45,26 +45,27 @@ static void configure_robomas_velocity_dob(
 
 static void configure_robstride_velocity_dob(
     Robstride_Actuator_VelocityDob_Parameters *const parameters,
-    const float velocity_limit,
+    const float velocity_reference_limit,
     const float current_limit,
     const float velocity_unit_to_rad_s,
-    const bool velocity_limit_enable,
+    const bool velocity_reference_limit_enable,
     const bool current_limit_enable,
     const bool torque_limit_enable)
 {
-    parameters->J = 1.0e-3f;
-    parameters->d = 1.0e-2f;
-    parameters->K_tau = 1.0f;
-    parameters->dob_bandwidth = 20.0f;
-    parameters->velocity_kp = 0.5f;
-    parameters->velocity_ki = 1.0f;
+    parameters->J = 0.0002715f;
+    parameters->d = 0.000465f;
+    parameters->K_tau = 1.22f;
+    parameters->dob_bandwidth = 0.8111f;
+    parameters->velocity_kp = 0.0f;
+    parameters->velocity_ki = 0.000005858f;
     parameters->velocity_kd = 0.0f;
-    parameters->reference_alpha = 10.0f;
-    parameters->velocity_limit = velocity_limit;
+    parameters->reference_alpha = 0.032445f;
+    parameters->velocity_reference_limit = velocity_reference_limit;
     parameters->current_limit = current_limit;
     /* 初期K_tau=1.0f [Nm/A]に基づく有効なトルク値を保持する。適用可否はflagで決める。 */
     parameters->torque_limit = current_limit * parameters->K_tau;
-    parameters->velocity_limit_enable = velocity_limit_enable;
+    parameters->velocity_reference_limit_enable =
+        velocity_reference_limit_enable;
     parameters->current_limit_enable = current_limit_enable;
     parameters->torque_limit_enable = torque_limit_enable;
     parameters->velocity_unit_to_rad_s = velocity_unit_to_rad_s;
@@ -316,6 +317,7 @@ static void configure_robstride_common(Robstride_DeviceInfo *device)
     ctrl->use_internal_offset = ROBSTRIDE_USE_OFFSET_POS_INTERNAL;
     ctrl->ctrl_type = ROBSTRIDE_CTRL_POS;
     // ctrl->ctrl_type = ROBSTRIDE_CTRL_CURRENT;
+    // ctrl->ctrl_type = ROBSTRIDE_CTRL_VEL_DOB;
     /* ROS指令が止まったときの自動Disableをモーターごとに切り替える。 */
     ctrl->ros_topic_timeout_enable = false;
     ctrl->velocity_limit = ROBSTRIDE_VELOCITY_LIMIT_ENABLE;
@@ -347,8 +349,8 @@ static void configure_robstride_0(void)
 
     /* ID2（根本）は速度制限を無効化し、通常確認用に2Aへ設定する。 */
     ctrl->velocity_limit = ROBSTRIDE_VELOCITY_LIMIT_DISABLE;
-    ctrl->velocity_dob.velocity_limit = 44.0f;
-    ctrl->velocity_dob.velocity_limit_enable = false;
+    ctrl->velocity_dob.velocity_reference_limit = 44.0f;
+    ctrl->velocity_dob.velocity_reference_limit_enable = false;
     ctrl->velocity_limit_size = 44.0f; /* Robstride_02の速度上限 */
     ctrl->current_limit = ROBSTRIDE_CURRENT_LIMIT_ENABLE;
     ctrl->current_limit_size = 2.0f; /* 通常確認用の電流上限 */

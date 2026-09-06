@@ -64,6 +64,43 @@
 #define MICROROS_MODE_VELOCITY_DOB    4U
 #define MICROROS_MODE_MAX             MICROROS_MODE_VELOCITY_DOB
 
+typedef enum {
+  MICROROS_SERVICE_ACTION_MODE = 0,
+  MICROROS_SERVICE_ACTION_ENABLE,
+  MICROROS_SERVICE_ACTION_DISABLE
+} microros_service_action_t;
+
+typedef enum {
+  MICROROS_SERVICE_COMMAND_OK = 0,
+  MICROROS_SERVICE_COMMAND_INVALID,
+  MICROROS_SERVICE_COMMAND_INVALID_MODE
+} microros_service_command_result_t;
+
+typedef struct {
+  const char *name;
+  microros_service_action_t action;
+  uint8_t fixed_mode;
+  bool mode_from_data;
+} microros_service_command_definition_t;
+
+/* modeを正規形式とし、既存の個別モード名は互換エイリアスとして残す。 */
+static const microros_service_command_definition_t
+    microros_service_command_definitions[] = {
+      {"mode", MICROROS_SERVICE_ACTION_MODE, 0U, true},
+      {"position_aw", MICROROS_SERVICE_ACTION_MODE,
+       MICROROS_MODE_POSITION_AW, false},
+      {"pos_aw", MICROROS_SERVICE_ACTION_MODE,
+       MICROROS_MODE_POSITION_AW, false},
+      {"posision_aw", MICROROS_SERVICE_ACTION_MODE,
+       MICROROS_MODE_POSITION_AW, false},
+      {"velocity_dob", MICROROS_SERVICE_ACTION_MODE,
+       MICROROS_MODE_VELOCITY_DOB, false},
+      {"vel_dob", MICROROS_SERVICE_ACTION_MODE,
+       MICROROS_MODE_VELOCITY_DOB, false},
+      {"enable", MICROROS_SERVICE_ACTION_ENABLE, 0U, false},
+      {"disable", MICROROS_SERVICE_ACTION_DISABLE, 0U, false}
+    };
+
 /* custom transport / allocator は micro_ros_stm32cubemx_utils 側で実装する。 */
 bool cubemx_transport_open(struct uxrCustomTransport *transport);
 bool cubemx_transport_close(struct uxrCustomTransport *transport);
@@ -398,6 +435,41 @@ static bool parse_mode_data(float data, uint8_t *mode)
   return true;
 }
 
+static microros_service_command_result_t parse_service_command(
+    const rosidl_runtime_c__String *command,
+    float data,
+    microros_service_action_t *action,
+    uint8_t *mode)
+{
+  if (command == NULL || action == NULL || mode == NULL) {
+    return MICROROS_SERVICE_COMMAND_INVALID;
+  }
+
+  for (size_t i = 0U;
+       i < (sizeof(microros_service_command_definitions) /
+            sizeof(microros_service_command_definitions[0]));
+       ++i) {
+    const microros_service_command_definition_t *const definition =
+        &microros_service_command_definitions[i];
+
+    if (!ros_string_equals_literal(command, definition->name)) {
+      continue;
+    }
+
+    *action = definition->action;
+    if (!definition->mode_from_data) {
+      *mode = definition->fixed_mode;
+      return MICROROS_SERVICE_COMMAND_OK;
+    }
+
+    return parse_mode_data(data, mode)
+               ? MICROROS_SERVICE_COMMAND_OK
+               : MICROROS_SERVICE_COMMAND_INVALID_MODE;
+  }
+
+  return MICROROS_SERVICE_COMMAND_INVALID;
+}
+
 static bool map_robstride_mode(uint8_t mode, ROBSTRIDE_CTRL_TYPE *ctrl_type)
 {
   switch (mode) {
@@ -545,19 +617,19 @@ static void parameter_service_callback(const void *request_msg,
     return;
   }
 
-  const bool is_mode = ros_string_equals_literal(&request->command, "mode");
-  const bool is_enable = ros_string_equals_literal(&request->command, "enable");
-  const bool is_disable = ros_string_equals_literal(&request->command, "disable");
-  const bool is_position_aw =
-      ros_string_equals_literal(&request->command, "position_aw") ||
-      ros_string_equals_literal(&request->command, "pos_aw") ||
-      ros_string_equals_literal(&request->command, "posision_aw");
-  const bool is_velocity_dob =
-      ros_string_equals_literal(&request->command, "velocity_dob") ||
-      ros_string_equals_literal(&request->command, "vel_dob");
-  if (!is_mode && !is_enable && !is_disable &&
-      !is_position_aw && !is_velocity_dob) {
+  microros_service_action_t action;
+  uint8_t mode;
+  const microros_service_command_result_t command_result =
+      parse_service_command(&request->command,
+                            request->data,
+                            &action,
+                            &mode);
+  if (command_result == MICROROS_SERVICE_COMMAND_INVALID) {
     set_parameter_response(response, false, "invalid command");
+    return;
+  }
+  if (command_result == MICROROS_SERVICE_COMMAND_INVALID_MODE) {
+    set_parameter_response(response, false, "mode data must be integer 0..4");
     return;
   }
 
@@ -572,19 +644,7 @@ static void parameter_service_callback(const void *request_msg,
     return;
   }
 
-  if (is_mode || is_position_aw || is_velocity_dob) {
-    uint8_t mode;
-    if (is_position_aw) {
-      mode = MICROROS_MODE_POSITION_AW;
-    } else if (is_velocity_dob) {
-      mode = MICROROS_MODE_VELOCITY_DOB;
-    } else {
-      if (!parse_mode_data(request->data, &mode)) {
-        set_parameter_response(response, false, "mode data must be integer 0..4");
-        return;
-      }
-    }
-
+  if (action == MICROROS_SERVICE_ACTION_MODE) {
     if (!begin_control_transaction()) {
       set_parameter_response(response, false, "control busy");
       return;
@@ -609,25 +669,26 @@ static void parameter_service_callback(const void *request_msg,
     return;
   }
 
+  const bool enabling = action == MICROROS_SERVICE_ACTION_ENABLE;
   const char *operation_error = NULL;
   if (target_type == MICROROS_TARGET_ROBSTRIDE) {
     Robstride_DeviceInfo *device = &robstride_dev_info_global[device_index];
     invalidate_robstride_command(device);
-    if (is_enable && robstride_waiting_for_first_command[device_index]) {
+    if (enabling && robstride_waiting_for_first_command[device_index]) {
       operation_error = "waiting for first ROS command";
     } else if (Read_Robstride_FeedbackData(device).get_flag == 0U) {
       operation_error = "motor disconnected";
     } else {
       const uint8_t control_ok =
-          is_enable ? Robstride_ControlEnable(device, microros_delay)
-                    : Robstride_ControlDisable(device, microros_delay);
+          enabling ? Robstride_ControlEnable(device, microros_delay)
+                   : Robstride_ControlDisable(device, microros_delay);
       if (!control_ok) {
-        operation_error = is_enable ? "enable timeout" : "disable timeout";
+        operation_error = enabling ? "enable timeout" : "disable timeout";
       }
     }
   } else {
     RoboMas_DeviceInfo *device = &robomas_dev_info_global[device_index];
-    if (is_enable) {
+    if (enabling) {
       RoboMas_ControlEnable(device);
     } else {
       RoboMas_ControlDisable(device);
@@ -640,14 +701,14 @@ static void parameter_service_callback(const void *request_msg,
     return;
   }
 
-  if (is_enable) {
+  if (enabling) {
     if (target_type == MICROROS_TARGET_ROBSTRIDE) {
       reset_robstride_command_watchdog((uint32_t)device_index);
     } else {
       reset_robomas_command_watchdog((uint32_t)device_index);
     }
   }
-  set_parameter_response(response, true, is_enable ? "enabled" : "disabled");
+  set_parameter_response(response, true, enabling ? "enabled" : "disabled");
 }
 
 static bool initialize_command_message(
