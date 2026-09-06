@@ -251,32 +251,37 @@ void StartCanDevicesTask(void const *argument)
 }
 
 #if ROBOMAS_DEVICE_COUNT > 0U
-/*
- * Keep the calibration branch's "all configured motors first" behavior,
- * while updating the ROS-visible feedback during the wait.  The wait is
- * intentionally in RobomasTask, not before the scheduler starts.
- */
-static void wait_for_robomas_connection(void)
+/* フィードバックが準備できたモーターだけを個別にキャリブレーションする。 */
+static void start_robomas_calibration_if_ready(
+    bool calibration_started[ROBOMAS_DEVICE_STORAGE_COUNT])
 {
-  bool all_connected;
+#if ROBOMAS_C610_COUNT > 0U
+  if (!calibration_started[0] && robomas_fb[0].get_flag != 0U) {
+    printf("[RoboMas] ID %u feedback ready; calibration start\r\n",
+           (unsigned int)robomas_dev_info_global[0].device_id);
+    RoboMas_Calibration(&robomas_dev_info_global[0],
+                        -40.0f,
+                        ROBOMAS_SWITCH_NO,
+                        sensor2_GPIO_Port,
+                        sensor2_Pin,
+                        &hcan2);
+    calibration_started[0] = true;
+  }
+#endif
 
-  printf("[RoboMas] Wait for Connection...\r\n");
-  do {
-    all_connected = true;
-    for (uint8_t i = 0U; i < num_of_robomas; ++i) {
-      const RoboMas_FeedbackData feedback =
-          Get_RoboMas_FeedbackData(&robomas_dev_info_global[i]);
-      robomas_fb[i] = feedback;
-      if (feedback.get_flag == 0U) {
-        all_connected = false;
-      }
-    }
-    if (!all_connected) {
-      osDelay(5U);
-    }
-  } while (!all_connected);
-
-  printf("[RoboMas] All Connected!\r\n");
+#if ROBOMAS_C610_COUNT > 1U
+  if (!calibration_started[1] && robomas_fb[1].get_flag != 0U) {
+    printf("[RoboMas] ID %u feedback ready; calibration start\r\n",
+           (unsigned int)robomas_dev_info_global[1].device_id);
+    RoboMas_Calibration(&robomas_dev_info_global[1],
+                        -40.0f,
+                        ROBOMAS_SWITCH_NO,
+                        sensor1_GPIO_Port,
+                        sensor1_Pin,
+                        &hcan2);
+    calibration_started[1] = true;
+  }
+#endif
 }
 #endif
 
@@ -338,6 +343,10 @@ void StartRobstrideTask(void const * argument)
 void StartRobomasTask(void const * argument)
 {
   /* USER CODE BEGIN StartRobomasTask */
+  bool calibration_started[ROBOMAS_DEVICE_STORAGE_COUNT] = {false};
+#if ROBOMAS_DEVICE_COUNT > 0U
+  bool robomas_feedback_wait_logged[ROBOMAS_DEVICE_STORAGE_COUNT] = {false};
+#endif
 #if ROBOMAS_C610_COUNT > 0U
   bool calibration_first_done_printed = false;
 #if ROBOMAS_C610_COUNT > 1U
@@ -347,51 +356,42 @@ void StartRobomasTask(void const * argument)
 
   (void)argument;
 
-  /*
-   * Ethernet initialization and its first link-up traffic must settle before
-   * calibration can enable a motor. This is a one-way startup barrier; the
-   * control loop does not depend on ROS being connected afterward.
-   */
-  while (!ethernet_init_complete) {
-    osDelay(10U);
-  }
-
-  /* CAN2 feedback is independent of the Robstride connection wait. */
-  while (!CanDevices_IsPrepared()) {
-    osDelay(10U);
-  }
+  TickType_t robomas_last_wake_time = xTaskGetTickCount();
 
 #if ROBOMAS_DEVICE_COUNT > 0U
-  /* Import the original branch's automatic C610 ID1 calibration flow. */
-  wait_for_robomas_connection();
-  printf("Calibration...\r\n");
-  RoboMas_Calibration(&robomas_dev_info_global[0],
-                      -40.0f,
-                      ROBOMAS_SWITCH_NO,
-                      sensor2_GPIO_Port,
-                      sensor2_Pin,
-                      &hcan2);
-#if ROBOMAS_C610_COUNT > 1U
-  /* Imported from Ohmori's completed C610 ID4 calibration flow. */
-  RoboMas_Calibration(&robomas_dev_info_global[1],
-                      -40.0f,
-                      ROBOMAS_SWITCH_NO,
-                      sensor1_GPIO_Port,
-                      sensor1_Pin,
-                      &hcan2);
+  printf("[RoboMas] task started; prepared=%u ethernet=%u\r\n",
+         (unsigned)CanDevices_IsPrepared(),
+         (unsigned)ethernet_init_complete);
 #endif
-#endif
-
-  TickType_t robomas_last_wake_time = xTaskGetTickCount();
 
   for (;;) {
 #if ROBOMAS_DEVICE_COUNT > 0U
-    MicroRos_CheckRobomasCommandTimeout();
+    /* 初期化未完了時もタスクを止めず、安全な状態で次周期へ進む。 */
+    if (CanDevices_IsPrepared()) {
+      MicroRos_CheckRobomasCommandTimeout();
 
-    RoboMas_SendRequest(robomas_dev_info_global,
-                        num_of_robomas,
-                        500.0f,
-                        &hcan2);
+      /* 接続待ちを行わず、受信済みフィードバックを毎周期更新する。 */
+      for (uint8_t i = 0U; i < num_of_robomas; ++i) {
+        const RoboMas_FeedbackData feedback =
+            Get_RoboMas_FeedbackData(&robomas_dev_info_global[i]);
+        robomas_fb[i] = feedback;
+        if ((feedback.get_flag == 0U) &&
+            !robomas_feedback_wait_logged[i]) {
+          printf("[RoboMas] ID %u waiting for CAN feedback\r\n",
+                 (unsigned)robomas_dev_info_global[i].device_id);
+          robomas_feedback_wait_logged[i] = true;
+        }
+      }
+
+      /* Ethernet初期化完了後、準備できたモーターから順に開始する。 */
+      if (ethernet_init_complete) {
+        start_robomas_calibration_if_ready(calibration_started);
+      }
+
+      RoboMas_SendRequest(robomas_dev_info_global,
+                          num_of_robomas,
+                          500.0f,
+                          &hcan2);
 
 #if ROBOMAS_C610_COUNT > 0U
     /* 各モーターの完了を個別に通知する。 */
@@ -409,14 +409,9 @@ void StartRobomasTask(void const * argument)
     }
 #endif
 #endif
-
-    for (uint8_t i = 0U; i < num_of_robomas; ++i) {
-      const RoboMas_FeedbackData feedback =
-          Get_RoboMas_FeedbackData(&robomas_dev_info_global[i]);
-      robomas_fb[i] = feedback;
     }
 #endif
-    /* Agent接続待ちなど他タスクの処理時間に影響されない周期待ち。 */
+    /* 未接続モーターがあっても周期処理を止めない。 */
     vTaskDelayUntil(&robomas_last_wake_time, pdMS_TO_TICKS(2U));
   }
   /* USER CODE END StartRobomasTask */

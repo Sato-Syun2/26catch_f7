@@ -41,6 +41,8 @@ static bool robstride_target_parameter(const Robstride_DeviceInfo *device_info,
                                        float *wire_value);
 static float robstride_clamp_current(const Robstride_DeviceInfo *device_info,
                                      float current);
+static float robstride_clamp_position_wire(const Robstride_DeviceInfo *device_info,
+                                           float position);
 static bool robstride_write_int_verified(Robstride_DeviceInfo *device_info,
                                          uint16_t address,
                                          int value,
@@ -167,6 +169,7 @@ static bool robstride_target_parameter(const Robstride_DeviceInfo *const device_
             if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) {
                 value *= -1.0f;
             }
+            value = robstride_clamp_position_wire(device_info, value);
             break;
         case ROBSTRIDE_CTRL_VEL:
             *address = (uint16_t)ADDR_SPEED_REF;
@@ -203,6 +206,37 @@ static float robstride_clamp_current(const Robstride_DeviceInfo *const device_in
     }
 
     return fmaxf(-limit, fminf(current, limit));
+}
+
+static float robstride_clamp_position_wire(
+    const Robstride_DeviceInfo *const device_info,
+    const float position)
+{
+    float minimum;
+    float maximum;
+
+    if (device_info == NULL || !isfinite(position)) {
+        return 0.0f;
+    }
+
+    switch (device_info->device) {
+        case Robstride_02:
+            minimum = P_MIN_ROBSTRIDE02;
+            maximum = P_MAX_ROBSTRIDE02;
+            break;
+        case Robstride_04:
+            minimum = P_MIN_ROBSTRIDE04;
+            maximum = P_MAX_ROBSTRIDE04;
+            break;
+        case Robstride_05_Edu:
+            minimum = P_MIN_ROBSTRIDE05;
+            maximum = P_MAX_ROBSTRIDE05;
+            break;
+        default:
+            return position;
+    }
+
+    return fmaxf(minimum, fminf(position, maximum));
 }
 
 static float robstride_cached_parameter(const Robstride_FeedbackData *const feedback,
@@ -1058,6 +1092,10 @@ uint8_t Robstride_ServiceChangeControl(Robstride_DeviceInfo *const dev_info,
                                        const ROBSTRIDE_CTRL_TYPE new_ctrl_type,
                                        DelayFunction_t f_delay)
 {
+    if (dev_info == NULL || f_delay == NULL) {
+        return 0U;
+    }
+
     const uint8_t wire_ctrl_type = robstride_wire_control_type(new_ctrl_type);
 
     if (new_ctrl_type < ROBSTRIDE_CTRL_POS ||
@@ -1079,6 +1117,11 @@ uint8_t Robstride_ServiceChangeControl(Robstride_DeviceInfo *const dev_info,
     dev_info->ctrl_param._mode_configured = 0U;
     Robstride_BeginPriorityTransaction(dev_info->phcan);
     if (!Robstride_ControlDisable(dev_info, f_delay)) {
+        const Robstride_FeedbackData feedback = Read_Robstride_FeedbackData(dev_info);
+        printf("[Robstride] ID %u mode change disable failed: mode=%u run_mode=%u\r\n",
+               (unsigned int)dev_info->device_id,
+               (unsigned int)feedback.mode_status,
+               (unsigned int)feedback.run_mode);
         goto service_complete;
     }
 
@@ -1094,19 +1137,30 @@ uint8_t Robstride_ServiceChangeControl(Robstride_DeviceInfo *const dev_info,
                                       (uint16_t)wire_ctrl_type,
                                       wire_ctrl_type,
                                       f_delay)) {
+        const Robstride_FeedbackData feedback = Read_Robstride_FeedbackData(dev_info);
+        printf("[Robstride] ID %u mode change run_mode failed: requested=%u actual=%u\r\n",
+               (unsigned int)dev_info->device_id,
+               (unsigned int)wire_ctrl_type,
+               (unsigned int)feedback.run_mode);
         dev_info->ctrl_param._enable_flag = 0U;
         goto service_complete;
     }
     dev_info->ctrl_param._mode_configured = 1U;
 
-    /* Establish a known zero/hold reference before a possible re-enable and
-     * verify the actual parameter response, not just the Type 2 status. */
-    if (!robstride_set_target_verified(dev_info, safe_target, f_delay)) {
+    /* Enable中の切替だけ、現在位置を保持目標として設定する。Disable中は
+     * 次のROS指令を待つため、古い目標値の書き込み自体を行わない。 */
+    if (was_enabled &&
+        !robstride_set_target_verified(dev_info, safe_target, f_delay)) {
+        printf("[Robstride] ID %u mode change target failed: target=%.6f\r\n",
+               (unsigned int)dev_info->device_id,
+               (double)safe_target);
         dev_info->ctrl_param._enable_flag = 0U;
         goto service_complete;
     }
 
     if (was_enabled && !Robstride_ControlEnable(dev_info, f_delay)) {
+        printf("[Robstride] ID %u mode change re-enable failed\r\n",
+               (unsigned int)dev_info->device_id);
         dev_info->ctrl_param._enable_flag = 0U;
         goto service_complete;
     }

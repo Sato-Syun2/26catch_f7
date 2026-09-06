@@ -86,7 +86,13 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
             continue;
         }
 
-        const RoboMas_FeedbackData fb_data = Get_RoboMas_FeedbackData(&dev_info_array[i]);
+        const RoboMas_FeedbackData fb_data =
+            Get_RoboMas_FeedbackData(&dev_info_array[i]);
+
+        /* フィードバック確立前は、制御値を計算せずゼロ指令を維持する。 */
+        if (fb_data.get_flag == 0U) {
+            continue;
+        }
 
         if (dev_info_array[i].ctrl_param._is_calibrating) {
             if (get_switch_state(dev_info_array[i].ctrl_param._limit_port, dev_info_array[i].ctrl_param._limit_pin, dev_info_array[i].ctrl_param._sw_type)) {

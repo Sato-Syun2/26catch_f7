@@ -315,8 +315,8 @@ static void configure_robstride_common(Robstride_DeviceInfo *device)
     Robstride_Ctrl_StructTypedef *ctrl = &device->ctrl_param;
 
     ctrl->use_internal_offset = ROBSTRIDE_USE_OFFSET_POS_INTERNAL;
-    // ctrl->ctrl_type = ROBSTRIDE_CTRL_POS;
-    ctrl->ctrl_type = ROBSTRIDE_CTRL_CURRENT;
+    ctrl->ctrl_type = ROBSTRIDE_CTRL_POS;
+    // ctrl->ctrl_type = ROBSTRIDE_CTRL_CURRENT;
     // ctrl->ctrl_type = ROBSTRIDE_CTRL_VEL_DOB;
     /* ROS指令が止まったときの自動Disableをモーターごとに切り替える。 */
     ctrl->ros_topic_timeout_enable = false;

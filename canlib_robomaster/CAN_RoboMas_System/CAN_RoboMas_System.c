@@ -33,6 +33,7 @@ static void robomas_exit_critical(uint32_t primask)
 
 
 #define ROBOMAS_CAN_TXBUFFER_SIZE    (512)
+#define ROBOMAS_CAN_TX_MAILBOX_COUNT (3U)
 #define ROBOMAS_FEEDBACK_READY_COUNT (50U)
 
 typedef struct {
@@ -84,7 +85,10 @@ HAL_StatusTypeDef _RoboMas_PopSendTx8Bytes(CAN_HandleTypeDef* phcan, CANRingBuf_
     txHeader.RTR = CAN_RTR_DATA;
     txHeader.IDE = CAN_ID_STD;
     txHeader.TransmitGlobalTime = DISABLE;
-    while (HAL_CAN_GetTxMailboxesFreeLevel(phcan) > 0) {
+    /* bxCANの送信メールボックスは3個。異常時も無限ループさせない。 */
+    uint8_t submitted = 0U;
+    while ((submitted < ROBOMAS_CAN_TX_MAILBOX_COUNT) &&
+           (HAL_CAN_GetTxMailboxesFreeLevel(phcan) > 0U)) {
         if ((p_can_ring->is_full == 0) && (p_can_ring->read_point == p_can_ring->write_point))break;
 
         txHeader.DLC = p_can_ring->buffer[p_can_ring->read_point].DLC;
@@ -99,6 +103,7 @@ HAL_StatusTypeDef _RoboMas_PopSendTx8Bytes(CAN_HandleTypeDef* phcan, CANRingBuf_
         }
         p_can_ring->read_point = ((p_can_ring->read_point) + 1) & (ROBOMAS_CAN_TXBUFFER_SIZE - 1);
         p_can_ring->is_full = 0;
+        submitted++;
     }
 
     robomas_exit_critical(primask);

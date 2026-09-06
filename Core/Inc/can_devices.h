@@ -8,8 +8,8 @@
 #include "CAN_Robstride.h"
 #include "CAN_Main.h"
 
-#define ROBSTRIDE_DEVICE_COUNT 1U
-#define ROBOMAS_C610_COUNT 0U
+#define ROBSTRIDE_DEVICE_COUNT 2U
+#define ROBOMAS_C610_COUNT 2U
 #define ROBOMAS_C620_COUNT 0U
 #define ROBOMAS_DEVICE_COUNT (ROBOMAS_C610_COUNT + ROBOMAS_C620_COUNT)
 
@@ -17,10 +17,10 @@
  * Robstride の接続先。1 台ずつ確認する場合は DEVICE_COUNT を 1 にして
  * スロット 0 の種類と CAN ID を切り替える。
  */
-// #define ROBSTRIDE_DEVICE_0_TYPE Robstride_02
-// #define ROBSTRIDE_DEVICE_0_ID   2U
-#define ROBSTRIDE_DEVICE_0_TYPE Robstride_05_Edu //DEBUG
-#define ROBSTRIDE_DEVICE_0_ID   127U //DEBUG
+#define ROBSTRIDE_DEVICE_0_TYPE Robstride_02
+#define ROBSTRIDE_DEVICE_0_ID   2U
+// #define ROBSTRIDE_DEVICE_0_TYPE Robstride_05_Edu //DEBUG
+// #define ROBSTRIDE_DEVICE_0_ID   127U //DEBUG
 #define ROBSTRIDE_DEVICE_1_TYPE Robstride_05_Edu
 #define ROBSTRIDE_DEVICE_1_ID   1U
 

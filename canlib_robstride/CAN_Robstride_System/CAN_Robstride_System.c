@@ -649,17 +649,17 @@ void Robstride_WhenCANRxFifo0MsgPending(CAN_HandleTypeDef *const phcan) {
         motor_id = (uint8_t)(ExtId >> 8);
         //    printf("response1 from motor from %d\n\r", (int)motor_id);
         Get_Robstride_MCUID(rxData, motor_id);
-    } else if (ExtId >= 0x02000000 && ExtId <= 0x02C07F7F) {
+    } else if ((ExtId & 0xFF000000U) == 0x02000000U) {
         // uint32_t master_id = (uint8_t)(ExtId & 0xFF);
         motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
         Robstride_set_fb_data_raw(ExtId, rxData, motor_id);
         //    printf("response2 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
-    } else if (ExtId >= 0x11000000 && ExtId <= 0x11007F7F) {
+    } else if ((ExtId & 0xFF000000U) == 0x11000000U) {
         // uint32_t master_id = (uint8_t)(ExtId & 0xFF);
         motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
         Robstride_ProcessParameterFrame(ExtId, rxData, motor_id);
         // printf("response3 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
-    } else if (ExtId >= 0x15000000 && ExtId <= 0x15007F7F) {
+    } else if ((ExtId & 0xFF000000U) == 0x15000000U) {
         // Fault response: motor ID is in bits 8..15; the low byte is master ID.
         motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
         Robstride_ProcessFault(rxData, motor_id);
@@ -683,17 +683,17 @@ void Robstride_WhenCANRxFifo1MsgPending(CAN_HandleTypeDef *const phcan) {
         motor_id = (uint8_t)(ExtId >> 8);
         // printf("response1 from motor from %d\n\r", (int)motor_id);
         Get_Robstride_MCUID(rxData, motor_id);
-    } else if (ExtId >= 0x02000000 && ExtId <= 0x02C07F7F) {
+    } else if ((ExtId & 0xFF000000U) == 0x02000000U) {
         // uint32_t master_id = (uint8_t)(ExtId & 0xFF);
         motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
         Robstride_set_fb_data_raw(ExtId, rxData, motor_id);
         // printf("response2 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
-    } else if (ExtId >= 0x11000000 && ExtId <= 0x11007F7F) {
+    } else if ((ExtId & 0xFF000000U) == 0x11000000U) {
         // uint32_t master_id = (uint8_t)(ExtId & 0xFF);
         motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
         Robstride_ProcessParameterFrame(ExtId, rxData, motor_id);
         // printf("response3 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
-    } else if (ExtId >= 0x15000000 && ExtId <= 0x15007F7F) {
+    } else if ((ExtId & 0xFF000000U) == 0x15000000U) {
         // Fault response: motor ID is in bits 8..15; the low byte is master ID.
         motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
         Robstride_ProcessFault(rxData, motor_id);
