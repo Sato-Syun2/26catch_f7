@@ -181,8 +181,11 @@ static HAL_StatusTypeDef _Robstride_PopSendTx8Bytes(CAN_HandleTypeDef *const phc
     txHeader.TransmitGlobalTime = DISABLE;
 
     /* Keep the ring state consistent with the producer task. */
+    /* bxCANの送信メールボックスは3個。異常時も無限ループさせない。 */
+    uint8_t submitted = 0U;
     __disable_irq();
-    while (HAL_CAN_GetTxMailboxesFreeLevel(phcan) > 0) {
+    while ((submitted < CAN_TX_MAILBOX_COUNT) &&
+           (HAL_CAN_GetTxMailboxesFreeLevel(phcan) > 0U)) {
         CANTxBuf_Robstride *frame_buffer;
         uint32_t *read_point;
         uint8_t *is_full;
@@ -233,6 +236,7 @@ static HAL_StatusTypeDef _Robstride_PopSendTx8Bytes(CAN_HandleTypeDef *const phc
         }
         *read_point = (*read_point + 1U) & (ring_size - 1U);
         *is_full = 0U;
+        ++submitted;
     }
     __set_PRIMASK(primask);
     return result;
