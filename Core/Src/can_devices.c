@@ -178,7 +178,8 @@ static void configure_robomas_common(RoboMas_DeviceInfo *device)
     RoboMas_Ctrl_StructTypedef *ctrl = &device->ctrl_param;
 
     ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_INTERNAL;
-    ctrl->ctrl_type = ROBOMAS_CTRL_POS_AW;
+    /* 通常モードはservice_devと同じPOS。POS_AWはserviceで明示的に選択する。 */
+    ctrl->ctrl_type = ROBOMAS_CTRL_POS;
     /* ROS指令が止まったときの自動Disableをモーターごとに切り替える。 */
     ctrl->ros_topic_timeout_enable = true;
     /* Imported from the Robomaster calibration branch. */
@@ -466,55 +467,20 @@ void CanDevices_InitAfterWait(DelayFunction_t delay_function)
         Robstride_DeviceInfo *const device = &robstride_dev_info_global[i];
         float initial_position;
 
-        const uint8_t disable_ok =
-            Robstride_ControlDisable(device, delay_function);
-        if (disable_ok == 0U) {
-            printf("[Robstride] ID %u startup disable not verified; continuing setup\r\n",
-                   (unsigned int)device->device_id);
-        }
+        Robstride_ControlDisable(device, delay_function);
         Robstride_SetPIDParams(device, delay_function);
-        /* 設定値を書き込み、読み返し確認できた個体だけを使用可能にする。 */
-        const HAL_StatusTypeDef speed_write_status =
-            Robstride_WriteFloatData(device,
-                                     ADDR_LIMIT_SPEED,
-                                     device->ctrl_param.velocity_limit_size);
+        Robstride_WriteFloatData(device,
+                                 ADDR_LIMIT_SPEED,
+                                 device->ctrl_param.velocity_limit_size);
         delay_function(10U);
-        const HAL_StatusTypeDef current_write_status =
-            Robstride_WriteFloatData(device,
-                                     ADDR_LIMIT_CURRENT,
-                                     device->ctrl_param.current_limit_size);
+        Robstride_WriteFloatData(device,
+                                 ADDR_LIMIT_CURRENT,
+                                 device->ctrl_param.current_limit_size);
         delay_function(10U);
-        /* 起動時に書き込んだ速度・電流リミットをモーターから読み返す。 */
-        const HAL_StatusTypeDef speed_read_status =
-            Robstride_RequestReadParameter(device, ADDR_LIMIT_SPEED);
+        Robstride_RequestReadParameter(device, ADDR_LIMIT_SPEED);
         delay_function(10U);
-        const HAL_StatusTypeDef current_read_status =
-            Robstride_RequestReadParameter(device, ADDR_LIMIT_CURRENT);
+        Robstride_RequestReadParameter(device, ADDR_LIMIT_CURRENT);
         delay_function(10U);
-        bool limits_ok = false;
-        {
-            const Robstride_FeedbackData applied_limits =
-                Read_Robstride_FeedbackData(device);
-            limits_ok =
-                speed_write_status == HAL_OK &&
-                current_write_status == HAL_OK &&
-                speed_read_status == HAL_OK &&
-                current_read_status == HAL_OK &&
-                isfinite(applied_limits.limit_spd) &&
-                isfinite(applied_limits.limit_cur) &&
-                fabsf(applied_limits.limit_spd -
-                      device->ctrl_param.velocity_limit_size) <= 0.001f &&
-                fabsf(applied_limits.limit_cur -
-                      device->ctrl_param.current_limit_size) <= 0.001f;
-            printf("[Robstride] ID %u applied limits: speed=%.6f rad/s, current=%.6f A\r\n",
-                   (unsigned int)device->device_id,
-                   (double)applied_limits.limit_spd,
-                   (double)applied_limits.limit_cur);
-        }
-        if (!limits_ok) {
-            printf("[Robstride] ID %u limit setup not verified; continuing mode setup\r\n",
-                   (unsigned int)device->device_id);
-        }
         Robstride_SetTorqueLimit(device);
         delay_function(10U);
 

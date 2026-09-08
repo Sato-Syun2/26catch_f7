@@ -409,23 +409,13 @@ void Robstride_ClearPriorityTxQueue(CAN_HandleTypeDef *const phcan)
                                  CAN_TX_MAILBOX2);
 }
 
-HAL_StatusTypeDef Robstride_RequestReadParameter(Robstride_DeviceInfo *const device_info,
-                                                  const uint16_t address) {
-    if (device_info == NULL || device_info->phcan == NULL) {
-        return HAL_ERROR;
-    }
-
-    uint8_t can_data[8] = {0U};
+void Robstride_RequestReadParameter(Robstride_DeviceInfo *const device_info, const uint16_t address) {
+    uint8_t can_data[8];
     _Robstride_RegisterParameterMasterId(device_info);
     can_data[0] = address & 0x00FF;
     can_data[1] = address >> 8;
     uint16_t option = 0x00 << 8 | device_info->master_id;
-    return Robstride_SendBytes(device_info->phcan,
-                               device_info->device_id,
-                               CMD_RAM_READ,
-                               option,
-                               can_data,
-                               sizeof(can_data));
+    (void)Robstride_SendBytes(device_info->phcan, device_info->device_id, CMD_RAM_READ, option, (uint8_t *)can_data, sizeof(can_data));
 }
 
 HAL_StatusTypeDef Robstride_RequestReadParameterPriority(Robstride_DeviceInfo *const device_info,
@@ -443,23 +433,12 @@ HAL_StatusTypeDef Robstride_RequestReadParameterPriority(Robstride_DeviceInfo *c
                                        sizeof(can_data));
 }
 
-HAL_StatusTypeDef Robstride_WriteFloatData(Robstride_DeviceInfo *const device_info,
-                                           const uint16_t address,
-                                           const float data) {
-    if (device_info == NULL || device_info->phcan == NULL || !isfinite(data)) {
-        return HAL_ERROR;
-    }
-
+void Robstride_WriteFloatData(Robstride_DeviceInfo *const device_info, const uint16_t address, const float data) {
     uint8_t can_data[8] = { 0x00 };
     can_data[0] = address & 0x00FF;
     can_data[1] = address >> 8;
     memcpy(&can_data[4], &data, 4);
-    return Robstride_SendBytes(device_info->phcan,
-                               device_info->device_id,
-                               CMD_RAM_WRITE,
-                               device_info->master_id,
-                               can_data,
-                               sizeof(can_data));
+    (void)Robstride_SendBytes(device_info->phcan, device_info->device_id, CMD_RAM_WRITE, device_info->master_id, (uint8_t *)can_data, sizeof(can_data));
 }
 
 HAL_StatusTypeDef Robstride_WriteFloatDataPriority(Robstride_DeviceInfo *const device_info,
@@ -649,17 +628,17 @@ void Robstride_WhenCANRxFifo0MsgPending(CAN_HandleTypeDef *const phcan) {
         motor_id = (uint8_t)(ExtId >> 8);
         //    printf("response1 from motor from %d\n\r", (int)motor_id);
         Get_Robstride_MCUID(rxData, motor_id);
-    } else if ((ExtId & 0xFF000000U) == 0x02000000U) {
+    } else if (ExtId >= 0x02000000 && ExtId <= 0x02C07F7F) {
         // uint32_t master_id = (uint8_t)(ExtId & 0xFF);
         motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
         Robstride_set_fb_data_raw(ExtId, rxData, motor_id);
         //    printf("response2 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
-    } else if ((ExtId & 0xFF000000U) == 0x11000000U) {
+    } else if (ExtId >= 0x11000000 && ExtId <= 0x11007F7F) {
         // uint32_t master_id = (uint8_t)(ExtId & 0xFF);
         motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
         Robstride_ProcessParameterFrame(ExtId, rxData, motor_id);
         // printf("response3 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
-    } else if ((ExtId & 0xFF000000U) == 0x15000000U) {
+    } else if (ExtId >= 0x15000000 && ExtId <= 0x15007F7F) {
         // Fault response: motor ID is in bits 8..15; the low byte is master ID.
         motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
         Robstride_ProcessFault(rxData, motor_id);
@@ -683,17 +662,17 @@ void Robstride_WhenCANRxFifo1MsgPending(CAN_HandleTypeDef *const phcan) {
         motor_id = (uint8_t)(ExtId >> 8);
         // printf("response1 from motor from %d\n\r", (int)motor_id);
         Get_Robstride_MCUID(rxData, motor_id);
-    } else if ((ExtId & 0xFF000000U) == 0x02000000U) {
+    } else if (ExtId >= 0x02000000 && ExtId <= 0x02C07F7F) {
         // uint32_t master_id = (uint8_t)(ExtId & 0xFF);
         motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
         Robstride_set_fb_data_raw(ExtId, rxData, motor_id);
         // printf("response2 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
-    } else if ((ExtId & 0xFF000000U) == 0x11000000U) {
+    } else if (ExtId >= 0x11000000 && ExtId <= 0x11007F7F) {
         // uint32_t master_id = (uint8_t)(ExtId & 0xFF);
         motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
         Robstride_ProcessParameterFrame(ExtId, rxData, motor_id);
         // printf("response3 from motor from %d to %d\n\r", (int)motor_id, (int)master_id);
-    } else if ((ExtId & 0xFF000000U) == 0x15000000U) {
+    } else if (ExtId >= 0x15000000 && ExtId <= 0x15007F7F) {
         // Fault response: motor ID is in bits 8..15; the low byte is master ID.
         motor_id = (uint8_t)((ExtId >> 8) & 0xFF);
         Robstride_ProcessFault(rxData, motor_id);

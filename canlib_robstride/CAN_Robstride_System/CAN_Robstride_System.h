@@ -63,15 +63,15 @@ void Robstride_ProcessParameterFrame(uint32_t ExtID, const uint8_t rxData[], uin
 
 void Robstride_ProcessFault(const uint8_t rxData[], uint8_t device_id);
 
-HAL_StatusTypeDef Robstride_RequestReadParameter(Robstride_DeviceInfo *device_info,
-                                                 uint16_t address);
+void Robstride_RequestReadParameter(Robstride_DeviceInfo *device_info,
+                                    uint16_t address);
 
 /* Priority variants are used only by service/control transactions. */
 HAL_StatusTypeDef Robstride_RequestReadParameterPriority(Robstride_DeviceInfo *device_info, uint16_t address);
 
-HAL_StatusTypeDef Robstride_WriteFloatData(Robstride_DeviceInfo *device_info,
-                                           uint16_t address,
-                                           float data);
+void Robstride_WriteFloatData(Robstride_DeviceInfo *device_info,
+                              uint16_t address,
+                              float data);
 
 HAL_StatusTypeDef Robstride_WriteFloatDataPriority(Robstride_DeviceInfo *device_info, uint16_t address, float data);
 

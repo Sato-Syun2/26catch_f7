@@ -30,5 +30,12 @@ float RoboMas_PID_Ctrl(RoboMas_PID_StructTypedef *params, float value_diff, floa
 
 float RoboMas_PID_Ctrl_AW(RoboMas_PID_StructTypedef* params, float value_diff, uint8_t accel_limit_enable, float max_value, float update_freq);
 
+/* POS_AW以外の既存制御で使う、service_dev互換の制限付きPID。 */
+float RoboMas_PID_Ctrl_ServiceAW(RoboMas_PID_StructTypedef *params,
+                                 float value_diff,
+                                 uint8_t accel_limit_enable,
+                                 float max_value,
+                                 float update_freq);
+
 
 #endif //ROBOMAS_CONTROL_H

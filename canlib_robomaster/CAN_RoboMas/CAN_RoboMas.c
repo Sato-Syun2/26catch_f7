@@ -35,6 +35,22 @@ static bool robomas_is_position_control(const ROBOMAS_CTRL_TYPE ctrl_type) {
     return ctrl_type == ROBOMAS_CTRL_POS || ctrl_type == ROBOMAS_CTRL_POS_AW;
 }
 
+static float robomas_update_pid(
+    RoboMas_PID_StructTypedef *const params,
+    const float error,
+    const uint8_t limit_enable,
+    const float limit,
+    const float update_freq,
+    const ROBOMAS_CTRL_TYPE ctrl_type)
+{
+    if (ctrl_type == ROBOMAS_CTRL_POS_AW) {
+        return RoboMas_PID_Ctrl_AW(
+            params, error, limit_enable, limit, update_freq);
+    }
+    return RoboMas_PID_Ctrl_ServiceAW(
+        params, error, limit_enable, limit, update_freq);
+}
+
 static void RoboMas_Ctrl_Struct_init(RoboMas_Ctrl_StructTypedef *ctrl_struct) {
     ctrl_struct->_target_value = 0.0f;
     ctrl_struct->_req_value = 0.0f;
@@ -141,11 +157,28 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
             }
             diff = dev_info_array[i].ctrl_param._target_value - fb_value;
             if(robomas_is_position_control(dev_info_array[i].ctrl_param.ctrl_type)) {
-                const float t_vel = RoboMas_PID_Ctrl_AW(&(dev_info_array[i].ctrl_param.pid_pos), diff, dev_info_array[i].ctrl_param.velocity_limit == ROBOMAS_LIMIT_ENABLE, dev_info_array[i].ctrl_param.velocity_limit_size, update_freq_hz);
-                t_current = RoboMas_PID_Ctrl_AW(&(dev_info_array[i].ctrl_param.pid_vel), t_vel - fb_data.velocity, dev_info_array[i].ctrl_param.current_limit == ROBOMAS_LIMIT_ENABLE, dev_info_array[i].ctrl_param.current_limit_size, update_freq_hz);
+                const float t_vel = robomas_update_pid(
+                    &(dev_info_array[i].ctrl_param.pid_pos),
+                    diff,
+                    dev_info_array[i].ctrl_param.velocity_limit == ROBOMAS_LIMIT_ENABLE,
+                    dev_info_array[i].ctrl_param.velocity_limit_size,
+                    update_freq_hz,
+                    dev_info_array[i].ctrl_param.ctrl_type);
+                t_current = robomas_update_pid(
+                    &(dev_info_array[i].ctrl_param.pid_vel),
+                    t_vel - fb_data.velocity,
+                    dev_info_array[i].ctrl_param.current_limit == ROBOMAS_LIMIT_ENABLE,
+                    dev_info_array[i].ctrl_param.current_limit_size,
+                    update_freq_hz,
+                    dev_info_array[i].ctrl_param.ctrl_type);
                 // 位置制御の場合は速度と位置の2重でPID
             }else if(dev_info_array[i].ctrl_param.ctrl_type == ROBOMAS_CTRL_VEL){
-                t_current = RoboMas_PID_Ctrl_AW(&(dev_info_array[i].ctrl_param.pid_vel), diff, dev_info_array[i].ctrl_param.current_limit == ROBOMAS_LIMIT_ENABLE, dev_info_array[i].ctrl_param.current_limit_size, update_freq_hz);
+                t_current = RoboMas_PID_Ctrl_ServiceAW(
+                    &(dev_info_array[i].ctrl_param.pid_vel),
+                    diff,
+                    dev_info_array[i].ctrl_param.current_limit == ROBOMAS_LIMIT_ENABLE,
+                    dev_info_array[i].ctrl_param.current_limit_size,
+                    update_freq_hz);
             }
         }
         /*

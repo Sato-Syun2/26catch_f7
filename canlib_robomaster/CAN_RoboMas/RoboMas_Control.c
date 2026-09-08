@@ -92,3 +92,40 @@ float RoboMas_PID_Ctrl_AW(RoboMas_PID_StructTypedef *params,
 
     return limit_enabled ? _clip_f(output, -limit, limit) : output;
 }
+
+float RoboMas_PID_Ctrl_ServiceAW(RoboMas_PID_StructTypedef *params,
+                                 float value_diff,
+                                 uint8_t accel_limit_enable,
+                                 float max_value,
+                                 float update_freq)
+{
+    if (params == NULL || !isfinite(value_diff) ||
+        !isfinite(max_value) || !isfinite(update_freq) ||
+        update_freq <= 0.0f) {
+        return 0.0f;
+    }
+
+    const float integral = params->_integral +
+                           (value_diff + params->_prev_value) /
+                               (2.0f * update_freq);
+    const float difference = value_diff - params->_prev_value;
+    float output = value_diff * params->kp +
+                   integral * params->ki +
+                   difference * params->kd;
+
+    params->_output_saturated = false;
+    params->_anti_windup_active = false;
+    if (accel_limit_enable && fabsf(output) > fabsf(max_value)) {
+        params->_integral += params->_prev_value /
+                             (2.0f * update_freq);
+        output = value_diff * params->kp +
+                 params->_integral * params->ki +
+                 difference * params->kd;
+        output = _clip_f(output, -fabsf(max_value), fabsf(max_value));
+        params->_output_saturated = true;
+    } else {
+        params->_integral = integral;
+    }
+    params->_prev_value = value_diff;
+    return output;
+}

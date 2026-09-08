@@ -935,7 +935,8 @@ static HAL_StatusTypeDef robstride_set_target_internal(
                                                 wire_value);
     }
 
-    return Robstride_WriteFloatData(device_info, address, wire_value);
+    Robstride_WriteFloatData(device_info, address, wire_value);
+    return HAL_OK;
 }
 
 HAL_StatusTypeDef Robstride_SetTarget(Robstride_DeviceInfo *const device_info,
@@ -957,7 +958,8 @@ static HAL_StatusTypeDef robstride_send_current(Robstride_DeviceInfo *const devi
     if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) {
         wire_current *= -1.0f;
     }
-    return Robstride_WriteFloatData(device_info, ADDR_IQ_REF, wire_current);
+    Robstride_WriteFloatData(device_info, ADDR_IQ_REF, wire_current);
+    return HAL_OK;
 }
 
 static bool robstride_set_target_verified(Robstride_DeviceInfo *const device_info,
