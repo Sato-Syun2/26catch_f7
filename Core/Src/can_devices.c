@@ -198,15 +198,16 @@ static void configure_c610_1(void)
     ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_CALIB;
     /* Current ID1: 28*pi mm per output-shaft revolution, with M2006 36:1. */
     ctrl->quant_per_rot = 99.0f / 36.0f;
-    ctrl->current_limit_size = 2.0f;
+    /* service_devで動作確認済みのC610 #1標準POS設定。 */
+    ctrl->current_limit_size = 4.0f;
     ctrl->velocity_limit_size = 10.0f;
-    ctrl->pid_vel.kp = 2.0f;
-    ctrl->pid_vel.ki = 1.5f;
+    ctrl->pid_vel.kp = 30.0f;
+    ctrl->pid_vel.ki = 10.0f;
     ctrl->pid_vel.kd = 0.0f;
     ctrl->pid_vel.kff = 0.0f;
-    ctrl->pid_pos.kp = 3.0f;
-    ctrl->pid_pos.ki = 0.0f;
-    ctrl->pid_pos.kd = 0.0f;
+    ctrl->pid_pos.kp = 2.0f;
+    ctrl->pid_pos.ki = 0.01f;
+    ctrl->pid_pos.kd = 0.2f;
     ctrl->pid_pos.kff = 0.0f;
     configure_robomas_velocity_dob(&ctrl->velocity_dob,
                                    ctrl->velocity_limit_size,
