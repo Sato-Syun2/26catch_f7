@@ -83,6 +83,7 @@ HAL_StatusTypeDef Robstride_SendPriorityBytes(CAN_HandleTypeDef *phcan, uint8_t 
 void Robstride_BeginPriorityTransaction(CAN_HandleTypeDef *phcan);
 void Robstride_EndPriorityTransaction(CAN_HandleTypeDef *phcan);
 void Robstride_ClearPriorityTxQueue(CAN_HandleTypeDef *phcan);
+bool Robstride_IsPriorityTransactionActive(const CAN_HandleTypeDef *phcan);
 
 /*
  * Runtime diagnostics.  These counters are read-and-cleared by the
@@ -100,6 +101,14 @@ void Robstride_WhenCANErrorCallbackCalled(CAN_HandleTypeDef *phcan);
 void Init_Robstride_CAN_System(CAN_HandleTypeDef *phcan);
 
 void Robstride_fb_init(Robstride_DeviceInfo *device_info);
+
+/* Robstrideの位置表現の有効範囲を取得する。 */
+bool Robstride_GetPositionLimits(Robstride_device device,
+                                 float *min_position,
+                                 float *max_position);
+
+/* 機械位置をゼロ化した後などに、位置アンラップの基準を捨てる。 */
+void Robstride_ResetPositionTracking(Robstride_DeviceInfo *device_info);
 
 Robstride_FeedbackData Get_Robstride_FeedbackData(Robstride_DeviceInfo *device_info);  // Robstride からデータを読みだして FB を取得
 Robstride_FeedbackData Read_Robstride_FeedbackData(Robstride_DeviceInfo *device_info); // 以前取得して保管されている Robstride の FB データを返す（新たに通信を行わない）

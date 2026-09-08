@@ -311,15 +311,12 @@ void StartRobstrideTask(void const * argument)
       target_refresh_divider = 0U;
     }
 
-    /*
-     * 既存のGet経路を意図的に維持し、100 Hzで各モーターの
-     * Type 17パラメータ要求を発行する。サービス通信は別の優先キュー
-     * と送信確認経路を通るため、この過負荷条件でも応答を混同しない。
-     */
+    /* Type 2の連続フィードバックだけを使い、非同期のType 17応答で
+     * 位置値を古い値へ戻さない。パラメータ取得はサービス側で行う。 */
     ++feedback_divider;
     if (feedback_divider >= 5U) {
       for (uint8_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
-        feedback_data[i] = Get_Robstride_FeedbackData(
+        feedback_data[i] = Read_Robstride_FeedbackData(
             &robstride_dev_info_global[i]);
       }
       feedback_divider = 0U;

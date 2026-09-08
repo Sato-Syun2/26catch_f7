@@ -396,7 +396,11 @@ void CanDevices_InitAfterWait(DelayFunction_t delay_function)
 
         /* micro-ROSの指令値と同じ度数法で、起動時の現在値を目標にする。 */
         robstride_target_value[i] = initial_position;
-        Robstride_SetTarget(device, initial_position);
+        if (Robstride_SetTarget(device, initial_position) != HAL_OK) {
+            printf("[Robstride] ID %u initial position target rejected; remains disabled\r\n",
+                   (unsigned int)device->device_id);
+            continue;
+        }
         Robstride_SetControl(device, device->ctrl_param.ctrl_type, delay_function);
     }
 

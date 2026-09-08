@@ -107,6 +107,8 @@ static catch26_interface__msg__UrosF7MotorUnitCommand
     robstride_commands[ROBSTRIDE_DEVICE_STORAGE_COUNT];
 static volatile bool robstride_command_valid[ROBSTRIDE_DEVICE_STORAGE_COUNT];
 static volatile bool robstride_command_pending[ROBSTRIDE_DEVICE_STORAGE_COUNT];
+static volatile uint32_t
+    robstride_command_generation[ROBSTRIDE_DEVICE_STORAGE_COUNT];
 
 /* 受信コールバックでは数えるだけにし、UART出力は低頻度のタスク側で行う。 */
 static volatile uint32_t microros_command_received_count = 0U;
@@ -343,6 +345,7 @@ static void invalidate_robstride_command(Robstride_DeviceInfo *device)
   __disable_irq();
   robstride_command_valid[index] = false;
   robstride_command_pending[index] = false;
+  Robstride_InvalidateTargetGeneration(device);
   __set_PRIMASK(primask);
 }
 
@@ -627,10 +630,21 @@ static float robomas_command_target_value(
 
 static void apply_robstride_command(
     Robstride_DeviceInfo *device,
-    const catch26_interface__msg__UrosF7MotorUnitCommand *command)
+    const catch26_interface__msg__UrosF7MotorUnitCommand *command,
+    const uint32_t expected_generation)
 {
+  /* Disable中のROS値は保存するが、CANへは絶対に送らない。 */
+  if (device->ctrl_param._enable_flag == 0U ||
+      Read_Robstride_FeedbackData(device).mode_status !=
+          ROBSTRIDE_STATE_ENABLE) {
+    return;
+  }
+
   /* Robstride_SetTarget() 内で位置指令から offset_pos を減算する。 */
-  Robstride_SetTarget(device, robstride_command_target_value(device, command));
+  (void)Robstride_SetTargetIfGeneration(
+      device,
+      robstride_command_target_value(device, command),
+      expected_generation);
 }
 
 static void apply_robomas_command(
@@ -689,6 +703,9 @@ static void command_callback(const void *msgin)
         ++microros_command_coalesced_count;
       }
       robstride_commands[robstride_index] = *unit;
+      robstride_command_generation[robstride_index] =
+          Robstride_GetTargetGeneration(
+              &robstride_dev_info_global[robstride_index]);
       robstride_command_valid[robstride_index] = true;
       robstride_command_pending[robstride_index] = true;
       __set_PRIMASK(primask);
@@ -702,6 +719,7 @@ void MicroRos_ApplyPendingRobstrideCommands(void)
 {
   for (uint32_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
     catch26_interface__msg__UrosF7MotorUnitCommand command = {0};
+    uint32_t generation = 0U;
     bool pending;
     const uint32_t primask = __get_PRIMASK();
 
@@ -710,13 +728,15 @@ void MicroRos_ApplyPendingRobstrideCommands(void)
     pending = robstride_command_pending[i];
     if (pending) {
       command = robstride_commands[i];
+      generation = robstride_command_generation[i];
       robstride_command_pending[i] = false;
     }
     __set_PRIMASK(primask);
 
     if (pending) {
       apply_robstride_command(&robstride_dev_info_global[i],
-                              &command);
+                              &command,
+                              generation);
     }
   }
 }
@@ -725,6 +745,7 @@ void MicroRos_RefreshRobstrideTargets(void)
 {
   for (uint32_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
     catch26_interface__msg__UrosF7MotorUnitCommand command = {0};
+    uint32_t generation = 0U;
     bool valid;
     const uint32_t primask = __get_PRIMASK();
 
@@ -732,13 +753,14 @@ void MicroRos_RefreshRobstrideTargets(void)
     valid = robstride_command_valid[i];
     if (valid) {
       command = robstride_commands[i];
+      generation = robstride_command_generation[i];
     }
     __set_PRIMASK(primask);
 
     if (valid) {
-      Robstride_SetTarget(&robstride_dev_info_global[i],
-                          robstride_command_target_value(
-                              &robstride_dev_info_global[i], &command));
+      apply_robstride_command(&robstride_dev_info_global[i],
+                              &command,
+                              generation);
     }
   }
 }
@@ -966,6 +988,7 @@ static void reset_command_state(void)
   for (uint32_t i = 0U; i < ROBSTRIDE_DEVICE_STORAGE_COUNT; ++i) {
     robstride_command_valid[i] = false;
     robstride_command_pending[i] = false;
+    robstride_command_generation[i] = 0U;
     robstride_commands[i] = (catch26_interface__msg__UrosF7MotorUnitCommand){0};
   }
   microros_command_received_count = 0U;
