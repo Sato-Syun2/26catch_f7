@@ -69,7 +69,7 @@ static void configure_robstride_velocity_dob(
     parameters->current_limit_enable = current_limit_enable;
     parameters->torque_limit_enable = torque_limit_enable;
     parameters->velocity_unit_to_rad_s = velocity_unit_to_rad_s;
-    parameters->control_period = 0.002f;
+    parameters->control_period = 0.005f;
 }
 
 /* FreeRTOS 開始前の初期化処理で使用する待機関数。 */

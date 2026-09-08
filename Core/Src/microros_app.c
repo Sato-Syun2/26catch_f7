@@ -54,6 +54,7 @@
 #define MICROROS_RESPONSE_STORAGE_SIZE 33U
 #define MICROROS_FEEDBACK_PERIOD_MS   10U
 #define MICROROS_COMMAND_NOMINAL_HZ   500U
+#define MICROROS_ROBSTRIDE_VEL_DOB_PERIOD_MS 5U
 #define MICROROS_DIAGNOSTIC_PERIOD_MS 1000U
 
 /* UrosF7Param.mode の共通値。速度系の拡張モードもサービスから選択できる。 */
@@ -1021,7 +1022,9 @@ void MicroRos_ApplyPendingRobstrideCommands(void)
 
       /* タイムアウト後など、Enable service前の目標値は適用しない。 */
       if (device->ctrl_param._enable_flag != 0U) {
-        apply_robstride_command(device, &command);
+        if (device->ctrl_param.ctrl_type != ROBSTRIDE_CTRL_VEL_DOB) {
+          apply_robstride_command(device, &command);
+        }
       }
     }
   }
@@ -1030,12 +1033,31 @@ void MicroRos_ApplyPendingRobstrideCommands(void)
 void MicroRos_RefreshRobstrideTargets(void)
 {
   static uint8_t normal_target_refresh_divider = 0U;
+  static uint32_t velocity_dob_last_refresh_tick = 0U;
+  static bool velocity_dob_refresh_initialized = false;
   bool refresh_normal_targets;
+  bool refresh_velocity_dob_targets;
+  const uint32_t now = HAL_GetTick();
 
   ++normal_target_refresh_divider;
   refresh_normal_targets = normal_target_refresh_divider >= 5U;
   if (refresh_normal_targets) {
     normal_target_refresh_divider = 0U;
+  }
+
+  if (!velocity_dob_refresh_initialized) {
+    velocity_dob_last_refresh_tick = now;
+    velocity_dob_refresh_initialized = true;
+    refresh_velocity_dob_targets = true;
+  } else if ((uint32_t)(now - velocity_dob_last_refresh_tick) >=
+             MICROROS_ROBSTRIDE_VEL_DOB_PERIOD_MS) {
+    /* 2 msタスク周期の整数分周ではなく、時刻基準で約5 ms周期にする。 */
+    const uint32_t elapsed = now - velocity_dob_last_refresh_tick;
+    velocity_dob_last_refresh_tick =
+        now - (elapsed % MICROROS_ROBSTRIDE_VEL_DOB_PERIOD_MS);
+    refresh_velocity_dob_targets = true;
+  } else {
+    refresh_velocity_dob_targets = false;
   }
 
   for (uint32_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
@@ -1054,7 +1076,7 @@ void MicroRos_RefreshRobstrideTargets(void)
     __set_PRIMASK(primask);
 
     /* ROS指令を一度も受信していない間は目標値を適用しない。 */
-    if (velocity_dob && valid &&
+    if (velocity_dob && refresh_velocity_dob_targets && valid &&
         robstride_dev_info_global[i].ctrl_param._enable_flag != 0U) {
       const float target = robstride_command_target_value(
           &robstride_dev_info_global[i], &command);

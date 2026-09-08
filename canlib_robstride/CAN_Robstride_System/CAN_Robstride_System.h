@@ -19,7 +19,6 @@
 
 #define CAN_TXBUFFER_SIZE (512)
 #define CAN_PRIORITY_TXBUFFER_SIZE (32U)
-#define CAN_TX_MAILBOX_COUNT (3U)
 
 // Typedefs --------------------------------
 
