@@ -344,6 +344,9 @@ void StartRobomasTask(void const * argument)
   bool calibration_second_done_printed = false;
 #endif
 #endif
+#if ROBOMAS_C620_COUNT > 0U
+  bool calibration_c620_done_printed = false;
+#endif
 
   (void)argument;
 
@@ -362,9 +365,10 @@ void StartRobomasTask(void const * argument)
   }
 
 #if ROBOMAS_DEVICE_COUNT > 0U
-  /* Import the original branch's automatic C610 ID1 calibration flow. */
+  /* 接続確認後、設定された各モーターのリミットスイッチ校正を開始する。 */
   wait_for_robomas_connection();
   printf("Calibration...\r\n");
+#if ROBOMAS_C610_COUNT > 0U
   RoboMas_Calibration(&robomas_dev_info_global[0],
                       -40.0f,
                       ROBOMAS_SWITCH_NO,
@@ -378,6 +382,16 @@ void StartRobomasTask(void const * argument)
                       ROBOMAS_SWITCH_NO,
                       sensor1_GPIO_Port,
                       sensor1_Pin,
+                      &hcan2);
+#endif
+#endif
+#if ROBOMAS_C620_COUNT > 0U
+  /* C620 #1はsensor3のスイッチで校正する。 */
+  RoboMas_Calibration(&robomas_dev_info_global[ROBOMAS_C610_COUNT],
+                      -10.0f,
+                      ROBOMAS_SWITCH_NO,
+                      sensor2_GPIO_Port,
+                      sensor2_Pin,
                       &hcan2);
 #endif
 #endif
@@ -406,6 +420,15 @@ void StartRobomasTask(void const * argument)
       calibration_second_done_printed = true;
     }
 #endif
+#endif
+
+#if ROBOMAS_C620_COUNT > 0U
+    if (!calibration_c620_done_printed &&
+        RoboMas_IsCalibrationEnded(
+            &robomas_dev_info_global[ROBOMAS_C610_COUNT])) {
+      printf("Calibration C620 done.\r\n");
+      calibration_c620_done_printed = true;
+    }
 #endif
 
     for (uint8_t i = 0U; i < num_of_robomas; ++i) {

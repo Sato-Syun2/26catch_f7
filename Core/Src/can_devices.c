@@ -119,7 +119,6 @@ static void configure_robomas_common(RoboMas_DeviceInfo *device)
 {
     RoboMas_Ctrl_StructTypedef *ctrl = &device->ctrl_param;
 
-    ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_INTERNAL;
     ctrl->ctrl_type = ROBOMAS_CTRL_POS;
     /* Imported from the Robomaster calibration branch. */
     ctrl->current_limit = ROBOMAS_LIMIT_ENABLE;
@@ -181,15 +180,16 @@ static void configure_c620_1(void)
         &robomas_dev_info_global[ROBOMAS_C610_COUNT].ctrl_param;
     configure_robomas_common(&robomas_dev_info_global[ROBOMAS_C610_COUNT]);
 
-    ctrl->rotation = ROBOMAS_ROT_ACW;
-    ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f;
-    ctrl->current_limit_size = 2.0f;
+    ctrl->rotation = ROBOMAS_ROT_CW;
+    ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_CALIB;
+    ctrl->quant_per_rot = 125.0f / 36.0f * 2.0; //1rot -> 125mm
+    ctrl->current_limit_size = 10.0f;
     ctrl->velocity_limit_size = 10.0f;
-    ctrl->pid_vel.kp = 2.0f;
-    ctrl->pid_vel.ki = 4.0f;
+    ctrl->pid_vel.kp = 0.2f;
+    ctrl->pid_vel.ki = 0.4f;
     ctrl->pid_vel.kd = 0.0f;
     ctrl->pid_vel.kff = 0.0f;
-    ctrl->pid_pos.kp = 4.0f;
+    ctrl->pid_pos.kp = 2.0f;
     ctrl->pid_pos.ki = 0.0f;
     ctrl->pid_pos.kd = 0.0f;
     ctrl->pid_pos.kff = 0.0f;
