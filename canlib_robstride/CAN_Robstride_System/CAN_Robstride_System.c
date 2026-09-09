@@ -21,15 +21,77 @@ static CAN_PriorityRingBuf_Robstride robstride_can_priority_buf_ring1 = { 0 };
 robstride_feedback_data_raw _robstride_feedback_data_raw_global[129];
 Robstride_FeedbackData robstride_fb_data_global[129];
 
+/* 肘の調整用。実電流50Hz・電圧5Hzを非同期記録し、制御では使用しない。 */
+typedef struct { uint32_t tick, id, address; float value; } ArmCurrentSample;
+volatile struct { uint32_t count; ArmCurrentSample samples[2048]; } arm_current_log;
+volatile uint32_t arm_current_diagnostic_request = 1U;
+static volatile bool arm_current_diagnostic_active;
+void Robstride_CurrentDiagnosticPoll(Robstride_DeviceInfo *device)
+{
+    static uint32_t iq_tick, bus_tick;
+    if (!device || device->device_id != 1U) return;
+    arm_current_diagnostic_active = arm_current_diagnostic_request && Robstride_UsesStandardFeedback(device);
+    if (!arm_current_diagnostic_active) return;
+    const uint32_t now = HAL_GetTick();
+    if ((uint32_t)(now-iq_tick)>=20U) {
+        (void)Robstride_RequestReadParameter(device, ADDR_IQF);
+        iq_tick=now;
+    }
+    if ((uint32_t)(now-bus_tick)>=200U) {
+        (void)Robstride_RequestReadParameter(device, ADDR_VBUS);
+        bus_tick=now;
+    }
+}
+static void arm_current_diagnostic_record(uint8_t id, uint16_t address, float value)
+{
+    if (id != 1U || !arm_current_diagnostic_active) return;
+    const uint32_t count=arm_current_log.count;
+    arm_current_log.samples[count%2048U]=(ArmCurrentSample){HAL_GetTick(),id,address,value};
+    __DMB();
+    arm_current_log.count=count+1U;
+}
+
 /* A Type 2 frame has no command sequence number.  These counters let the
  * service transaction require a frame received after its own request. */
 static volatile uint32_t robstride_feedback_sequence[129];
+static volatile float arm_measured_position[129];
+static volatile uint32_t arm_position_tick[129];
+static volatile bool arm_position_valid[129];
+static volatile Robstride_StandardFeedback robstride_standard_feedback[129];
+
+bool Robstride_UsesStandardFeedback(const Robstride_DeviceInfo *device)
+{
+    /* Mode5は位置MPC実装時にこの共通経路へ接続する。現在はサービス未公開。 */
+    return device && device->ctrl_param._enable_flag &&
+           device->ctrl_param.ctrl_type==ROBSTRIDE_CTRL_VEL_DOB;
+}
+
+bool Robstride_ReadStandardFeedback(const Robstride_DeviceInfo *device, Robstride_StandardFeedback *feedback)
+{
+    if (!device || !feedback || device->device_id>=129U) return false;
+    const uint32_t mask=__get_PRIMASK();
+    __disable_irq();
+    *feedback=robstride_standard_feedback[device->device_id];
+    __set_PRIMASK(mask);
+    return feedback->valid;
+}
+
+float Robstride_StandardReferenceCurrent(const Robstride_DeviceInfo *device, const Robstride_StandardFeedback *feedback)
+{
+    if (!device || !feedback || !feedback->valid) return NAN;
+    switch (device->device) {
+        case Robstride_02: return feedback->torque/1.22f;
+        case Robstride_05_Edu: return feedback->torque/0.94f;
+        default: return NAN;
+    }
+}
 
 typedef struct {
     volatile uint32_t run_mode;
     volatile uint32_t iq_ref;
     volatile uint32_t speed_ref;
     volatile uint32_t loc_ref;
+    volatile uint32_t cur_kp, cur_ki, cur_filt_gain;
 } RobstrideParameterSequence;
 
 static RobstrideParameterSequence robstride_parameter_sequence[129];
@@ -58,6 +120,18 @@ static volatile uint32_t robstride_tx_error_count = 0U;
 static volatile uint32_t robstride_priority_queue_full_count = 0U;
 static volatile uint32_t robstride_can_error_count = 0U;
 static volatile uint32_t robstride_can_error_code = HAL_CAN_ERROR_NONE;
+static volatile Robstride_RateCounters robstride_rate_counters;
+static uint32_t robstride_target_last_tick[2];
+
+Robstride_RateCounters Robstride_TakeRateCounters(void)
+{
+    const uint32_t primask=__get_PRIMASK();
+    __disable_irq();
+    Robstride_RateCounters result=robstride_rate_counters;
+    robstride_rate_counters=(Robstride_RateCounters){0};
+    __set_PRIMASK(primask);
+    return result;
+}
 
 // Private Function Prototypes --------------------------------
 
@@ -233,6 +307,19 @@ static HAL_StatusTypeDef _Robstride_PopSendTx8Bytes(CAN_HandleTypeDef *const phc
             }
             result = ret;
             break;
+        }
+        /* HAL受付と実送信完了は別に数える。制御値やキュー順序は変えない。 */
+        const uint8_t id=(uint8_t)txHeader.ExtId;
+        const uint8_t *data=frame_buffer[*read_point].bytes;
+        const uint16_t address=(uint16_t)data[0] | ((uint16_t)data[1]<<8);
+        if ((id==1U || id==2U) && (txHeader.ExtId>>24)==CMD_RAM_WRITE &&
+            (address==ADDR_IQ_REF || address==ADDR_LOC_REF || address==ADDR_SPEED_REF)) {
+            const uint32_t index=id-1U, now=HAL_GetTick();
+            const uint32_t gap=now-robstride_target_last_tick[index];
+            if (robstride_target_last_tick[index]!=0U && gap>robstride_rate_counters.target_max_gap_ms[index])
+                robstride_rate_counters.target_max_gap_ms[index]=gap;
+            robstride_target_last_tick[index]=now;
+            ++robstride_rate_counters.target_submit[index];
         }
         *read_point = (*read_point + 1U) & (ring_size - 1U);
         *is_full = 0U;
@@ -527,6 +614,7 @@ HAL_StatusTypeDef Robstride_SendPriorityBytes(CAN_HandleTypeDef *const phcan,
 
 void Robstride_WhenTxMailboxCompleteCallbackCalled(CAN_HandleTypeDef *const phcan) {
     if (_robstride_phcan_global != phcan) return;
+    ++robstride_rate_counters.tx_complete;
     (void)_Robstride_PopSendTx8Bytes(phcan);
 }
 
@@ -635,7 +723,13 @@ static void Robstride_set_fb_data_raw(const uint32_t ExtID, const uint8_t rxData
     //           robstride_fb_data_global[device_id].velocity,
     //           robstride_fb_data_global[device_id].torque);
     robstride_fb_data_global[device_id].temperature = (int)((float)(_robstride_feedback_data_raw_global[device_id].temp) / 10.0);
+    robstride_standard_feedback[device_id]=(Robstride_StandardFeedback){
+        .position=robstride_fb_data_global[device_id].position,
+        .velocity=robstride_fb_data_global[device_id].velocity,
+        .torque=robstride_fb_data_global[device_id].torque*robstride_fb_data_global[device_id].plus_minus,
+        .tick=HAL_GetTick(), .valid=true};
     ++robstride_feedback_sequence[device_id];
+    if (device_id==1U || device_id==2U) ++robstride_rate_counters.type2_rx[device_id-1U];
 }
 
 void Robstride_WhenCANRxFifo0MsgPending(CAN_HandleTypeDef *const phcan) {
@@ -885,6 +979,9 @@ void Init_Robstride_CAN_System(CAN_HandleTypeDef *const phcan) { // CAN初期化
         robstride_parameter_sequence[i].iq_ref = 0U;
         robstride_parameter_sequence[i].speed_ref = 0U;
         robstride_parameter_sequence[i].loc_ref = 0U;
+        robstride_parameter_sequence[i].cur_kp = 0U;
+        robstride_parameter_sequence[i].cur_ki = 0U;
+        robstride_parameter_sequence[i].cur_filt_gain = 0U;
         robstride_parameter_master_id[i] = 0U;
         robstride_parameter_master_id_valid[i] = 0U;
     }
@@ -925,6 +1022,25 @@ Robstride_FeedbackData Read_Robstride_FeedbackData(Robstride_DeviceInfo *const d
     return robstride_fb_data_global[device_id];
 }
 
+bool Robstride_ReadMeasuredPosition(const Robstride_DeviceInfo *device, float *position, uint32_t *tick)
+{
+    if (!device || device->device_id >= 129U || !position || !tick) return false;
+    if (Robstride_UsesStandardFeedback(device)) {
+        Robstride_StandardFeedback feedback;
+        const bool valid=Robstride_ReadStandardFeedback(device,&feedback);
+        *position=feedback.position; *tick=feedback.tick;
+        return valid;
+    }
+    uint32_t mask = __get_PRIMASK();
+    __disable_irq();
+    const uint8_t id = device->device_id;
+    bool valid = arm_position_valid[id];
+    *position = arm_measured_position[id];
+    *tick = arm_position_tick[id];
+    __set_PRIMASK(mask);
+    return valid;
+}
+
 uint32_t Robstride_GetFeedbackSequence(const Robstride_DeviceInfo *const device_info)
 {
     if (device_info == NULL || device_info->device_id >= 129U) {
@@ -962,6 +1078,12 @@ uint32_t Robstride_GetParameterSequence(const Robstride_DeviceInfo *const device
         case ADDR_LOC_REF:
             sequence = robstride_parameter_sequence[device_info->device_id].loc_ref;
             break;
+        case ADDR_CURRENT_KP:
+            sequence = robstride_parameter_sequence[device_info->device_id].cur_kp; break;
+        case ADDR_CURRENT_KI:
+            sequence = robstride_parameter_sequence[device_info->device_id].cur_ki; break;
+        case ADDR_CURRENT_FILTER_GAIN:
+            sequence = robstride_parameter_sequence[device_info->device_id].cur_filt_gain; break;
         default:
             break;
     }
@@ -1026,14 +1148,17 @@ void Robstride_ProcessParameter(const uint8_t rxData[], const uint8_t device_id)
         case ADDR_CURRENT_KP: // 0x7010
             memcpy(&float_data, &rxData[4], sizeof(float_data));
             robstride_fb_data_global[device_id].cur_kp = float_data;
+            ++robstride_parameter_sequence[device_id].cur_kp;
             break;
         case ADDR_CURRENT_KI: // 0x7011
             memcpy(&float_data, &rxData[4], sizeof(float_data));
             robstride_fb_data_global[device_id].cur_ki = float_data;
+            ++robstride_parameter_sequence[device_id].cur_ki;
             break;
         case ADDR_CURRENT_FILTER_GAIN: // 0x7014
             memcpy(&float_data, &rxData[4], sizeof(float_data));
             robstride_fb_data_global[device_id].cur_filt_gain = float_data;
+            ++robstride_parameter_sequence[device_id].cur_filt_gain;
             break;
         case ADDR_LOC_REF: // 0x7016
             memcpy(&float_data, &rxData[4], sizeof(float_data));
@@ -1049,9 +1174,13 @@ void Robstride_ProcessParameter(const uint8_t rxData[], const uint8_t device_id)
             robstride_fb_data_global[device_id].limit_cur = float_data;
             break;
         case ADDR_MECH_POS:
+            if (device_id==1U || device_id==2U) ++robstride_rate_counters.position_rx[device_id-1U];
             memcpy(&float_data, &rxData[4], sizeof(float_data));
             robstride_fb_data_global[device_id].position = float_data * robstride_fb_data_global[device_id].quant_per_rot * robstride_fb_data_global[device_id].plus_minus;
             robstride_fb_data_global[device_id].position += robstride_fb_data_global[device_id].offset_pos;
+            arm_measured_position[device_id] = robstride_fb_data_global[device_id].position;
+            arm_position_tick[device_id] = HAL_GetTick();
+            arm_position_valid[device_id] = true;
             // printf("motor%d: pos %f\n\r", (int)device_id, robstride_fb_data_global[device_id].position);
             _robstride_feedback_data_raw_global[device_id]._get_counter += 1;
             if (_robstride_feedback_data_raw_global[device_id]._get_counter > 128) {
@@ -1060,8 +1189,10 @@ void Robstride_ProcessParameter(const uint8_t rxData[], const uint8_t device_id)
             robstride_fb_data_global[device_id].get_flag = (_robstride_feedback_data_raw_global[device_id]._get_counter > 2);
             break;
         case ADDR_IQF:
+            if (device_id==1U || device_id==2U) ++robstride_rate_counters.iq_rx[device_id-1U];
             memcpy(&float_data, &rxData[4], sizeof(float_data));
             robstride_fb_data_global[device_id].current = float_data * robstride_fb_data_global[device_id].plus_minus;
+            arm_current_diagnostic_record(device_id, ADDR_IQF, robstride_fb_data_global[device_id].current);
             _robstride_feedback_data_raw_global[device_id]._get_counter += 1;
             // printf("motor%d: current %f\n\r", (int)device_id, robstride_fb_data_global[device_id].current);
             if (_robstride_feedback_data_raw_global[device_id]._get_counter > 128) {
@@ -1070,6 +1201,7 @@ void Robstride_ProcessParameter(const uint8_t rxData[], const uint8_t device_id)
             robstride_fb_data_global[device_id].get_flag = (_robstride_feedback_data_raw_global[device_id]._get_counter > 2);
             break;
         case ADDR_MECH_VEL:
+            if (device_id==1U || device_id==2U) ++robstride_rate_counters.velocity_rx[device_id-1U];
             memcpy(&float_data, &rxData[4], sizeof(float_data));
             robstride_fb_data_global[device_id].velocity = float_data * robstride_fb_data_global[device_id].quant_per_rot * robstride_fb_data_global[device_id].plus_minus;
             // printf("motor%d: vel %f\n\r", (int)device_id, robstride_fb_data_global[device_id].velocity);
@@ -1082,6 +1214,7 @@ void Robstride_ProcessParameter(const uint8_t rxData[], const uint8_t device_id)
         case ADDR_VBUS: // 0x701C
             memcpy(&float_data, &rxData[4], sizeof(float_data));
             robstride_fb_data_global[device_id].vbus = float_data;
+            arm_current_diagnostic_record(device_id, ADDR_VBUS, float_data);
             break;
         case ADDR_LOC_KP: // 0x701E
             memcpy(&float_data, &rxData[4], sizeof(float_data));
@@ -1185,6 +1318,8 @@ void Robstride_ProcessFault(const uint8_t rxData[], const uint8_t device_id) {
 }
 
 void Robstride_fb_init(Robstride_DeviceInfo *const device_info) {
+    robstride_standard_feedback[device_info->device_id].valid=false;
+    arm_position_valid[device_info->device_id] = false;
     _Robstride_RegisterParameterMasterId(device_info);
     if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) {
         robstride_fb_data_global[device_info->device_id].plus_minus = -1;

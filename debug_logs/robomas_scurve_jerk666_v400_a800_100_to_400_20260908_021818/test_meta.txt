@@ -1,0 +1,6 @@
+run_dir=26catch_f7/debug_logs/robomas_scurve_jerk666_v400_a800_100_to_400_20260908_021818
+started=2026-09-08T02:18:18+09:00
+target_100_sent=2026-09-08T02:18:26+09:00
+target_400_sent=2026-09-08T02:18:41+09:00
+test_complete=2026-09-08T02:18:59+09:00
+finished=2026-09-08T02:19:02+09:00

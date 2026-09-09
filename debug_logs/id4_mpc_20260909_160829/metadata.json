@@ -1,0 +1,6 @@
+{
+  "target": 100.0,
+  "result": "RuntimeError('feedback missing/disconnected')",
+  "initial": 0.0,
+  "disable_error": "RuntimeError('service disable: timeout')"
+}

@@ -71,4 +71,7 @@ void Robstride_PrintAllParameters(const Robstride_FeedbackData *fb_data);
 
 void Robstride_Debug_Check_All_Parameters(Robstride_DeviceInfo *device_info, DelayFunction_t f_delay);
 
+/* アーム試験中の位置範囲・mechPos鮮度監視。異常は再起動までラッチ。 */
+bool Robstride_ArmGuardCheck(Robstride_DeviceInfo *device);
+
 #endif // CAN_ROBSTRIDE_H

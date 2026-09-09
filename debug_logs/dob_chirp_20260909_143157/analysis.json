@@ -1,0 +1,41 @@
+{
+  "position_min": 250.42221069335938,
+  "position_max": 411.3965759277344,
+  "peak_current_A": 2.7260000705718994,
+  "peak_velocity_mm_s": 619.3916625976562,
+  "current_near_limit_fraction": 0.0,
+  "velocity_rmse_mm_s": 81.91625147835812,
+  "reference_rms_mm_s": 248.31453125009517,
+  "feedback_hz": 100.663295803392,
+  "maximum_feedback_gap_s": 0.013131978979799896,
+  "frequency_bands": [
+    {
+      "frequency_hz": [
+        1,
+        2
+      ],
+      "rmse_mm_s": 66.51341916783828,
+      "measured_rms_mm_s": 339.00307618878963,
+      "reference_rms_mm_s": 382.6193019434371
+    },
+    {
+      "frequency_hz": [
+        2,
+        5
+      ],
+      "rmse_mm_s": 85.08728249489324,
+      "measured_rms_mm_s": 213.0312290726927,
+      "reference_rms_mm_s": 262.5215111972759
+    },
+    {
+      "frequency_hz": [
+        5,
+        10
+      ],
+      "rmse_mm_s": 83.38060925499941,
+      "measured_rms_mm_s": 95.76721117733715,
+      "reference_rms_mm_s": 131.1712489968545
+    }
+  ],
+  "note": "Reference 10/(s+10); host feedback receive timestamps; target is most recently published command, not acknowledged application time. No fitted time shift. Current >=3.8A is a measured near-limit indicator, not the internal controller saturation flag."
+}

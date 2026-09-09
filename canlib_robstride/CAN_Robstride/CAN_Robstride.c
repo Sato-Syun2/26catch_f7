@@ -7,6 +7,8 @@
 #include <CAN_Robstride_System.h>
 #include <robstride_constant.h>
 #include <Robstride_Control.h>
+#include "arm_test_config.h"
+#include "Control/ArmVelocityEstimate.h"
 
 #include <stdbool.h>
 #include <math.h>  // 数学関数 (fabsf, fmaxf, fminf など) を使用するためにインクルード
@@ -15,6 +17,32 @@
 #define ROBSTRIDE_SERVICE_TIMEOUT_MS       (300U)
 #define ROBSTRIDE_SERVICE_RESPONSE_WINDOW_MS (10U)
 #define ROBSTRIDE_PARAMETER_TOLERANCE     (0.0005f)
+
+static bool arm_guard_tripped[3];
+static bool arm_current_config_ok[3];
+static ArmVelocityEstimate arm_velocity_estimate[3];
+/* 同定用RAM記録。CAN追加読み出しなし、各軸50Hz、単軸約82秒。 */
+typedef struct {
+    uint32_t tick, id;
+    float target, model, velocity, current, position, reference_current;
+} ArmDobSample;
+volatile struct { uint32_t count; ArmDobSample samples[4096]; } arm_dob_log;
+static uint32_t arm_dob_log_tick[3];
+bool Robstride_ArmGuardCheck(Robstride_DeviceInfo *device)
+{
+    if (!device) return false;
+    const uint8_t id = device->device_id;
+    if (id != 1U && id != 2U) return true;
+    float position;
+    uint32_t tick;
+    bool ok = Robstride_ReadMeasuredPosition(device, &position, &tick) &&
+              (uint32_t)(HAL_GetTick() - tick) <= 50U &&
+              isfinite(position) && position >= ARM_TEST_POSITION_MIN_DEG &&
+              position <= ARM_TEST_POSITION_MAX_DEG;
+    /* 起動時の未受信はEnableを拒否するだけ。動作中の異常はラッチ。 */
+    if (!ok && device->ctrl_param._enable_flag != 0U) arm_guard_tripped[id] = true;
+    return ok && !arm_guard_tripped[id];
+}
 
 // Private Function Prototypes --------------------------------
 
@@ -163,6 +191,11 @@ static bool robstride_target_parameter(const Robstride_DeviceInfo *const device_
     float value = target_value;
     switch (device_info->ctrl_param.ctrl_type) {
         case ROBSTRIDE_CTRL_POS:
+            if ((device_info->device_id == 1U || device_info->device_id == 2U) &&
+                (value < ARM_TEST_POSITION_MIN_DEG || value > ARM_TEST_POSITION_MAX_DEG)) {
+                arm_guard_tripped[device_info->device_id] = true;
+                return false;
+            }
             value -= device_info->ctrl_param.offset_pos;
             *address = (uint16_t)ADDR_LOC_REF;
             value /= device_info->ctrl_param.quant_per_rot;
@@ -253,6 +286,9 @@ static float robstride_cached_parameter(const Robstride_FeedbackData *const feed
             return feedback->limit_spd;
         case ADDR_LIMIT_CURRENT:
             return feedback->limit_cur;
+        case ADDR_CURRENT_KP: return feedback->cur_kp;
+        case ADDR_CURRENT_KI: return feedback->cur_ki;
+        case ADDR_CURRENT_FILTER_GAIN: return feedback->cur_filt_gain;
         default:
             return NAN;
     }
@@ -610,6 +646,35 @@ void Robstride_PresetParameters(Robstride_DeviceInfo *const dev_info, DelayFunct
  * @param dev_info Robstrideデバイス情報構造体へのポインタ
  * @retval なし
  */
+/* 起動時だけの有界読み書き確認。Type2は確認に使わず、対象アドレスの
+ * 新着Type17と値の一致を要求する。失敗時はアームEnableを解禁しない。 */
+static bool robstride_current_parameter(Robstride_DeviceInfo *dev, uint16_t address,
+                                       float wanted, DelayFunction_t delay)
+{
+    bool ok=false;
+    Robstride_BeginPriorityTransaction(dev->phcan);
+    uint32_t seq=Robstride_GetParameterSequence(dev,address), start=HAL_GetTick();
+    bool before_ok=Robstride_RequestReadParameterPriority(dev,address)==HAL_OK &&
+        robstride_wait_for_parameter(dev,address,seq,start,delay);
+    Robstride_FeedbackData fb=Read_Robstride_FeedbackData(dev);
+    const float before=before_ok ? robstride_cached_parameter(&fb,address) : NAN;
+    float after=NAN;
+    for (unsigned attempt=0;attempt<3 && !ok;++attempt) {
+        if (Robstride_WriteFloatDataPriority(dev,address,wanted)!=HAL_OK) continue;
+        delay(2U);
+        seq=Robstride_GetParameterSequence(dev,address);start=HAL_GetTick();
+        if (Robstride_RequestReadParameterPriority(dev,address)==HAL_OK &&
+            robstride_wait_for_parameter(dev,address,seq,start,delay)) {
+            fb=Read_Robstride_FeedbackData(dev);after=robstride_cached_parameter(&fb,address);
+            ok=isfinite(after) && fabsf(after-wanted)<0.00001f;
+        }
+    }
+    Robstride_EndPriorityTransaction(dev->phcan);
+    printf("[CurrentTune] ID=%u addr=0x%04x before=%.6f requested=%.6f readback=%.6f ok=%u\r\n",
+           dev->device_id,address,(double)before,(double)wanted,(double)after,ok);
+    return ok;
+}
+
 void Robstride_SetPIDParams(Robstride_DeviceInfo *const dev_info, DelayFunction_t f_delay) {
     Robstride_WriteFloatData(dev_info, ADDR_LOC_KP, dev_info->ctrl_param.pid.kp_pos);                  // 位置制御Pゲインを設定
     f_delay(10);                                                                                       // 書き込み後に少し待機
@@ -619,12 +684,10 @@ void Robstride_SetPIDParams(Robstride_DeviceInfo *const dev_info, DelayFunction_
     f_delay(10);                                                                                       // 書き込み後に少し待機
     Robstride_WriteFloatData(dev_info, ADDR_SPD_FILTER_GAIN, dev_info->ctrl_param.pid.filter_vel);     // 速度制御フィルタゲインを設定
     f_delay(10);                                                                                       // 書き込み後に少し待機
-    Robstride_WriteFloatData(dev_info, ADDR_CURRENT_KP, dev_info->ctrl_param.pid.kp_cur);              // 電流制御Pゲインを設定
-    f_delay(10);                                                                                       // 書き込み後に少し待機
-    Robstride_WriteFloatData(dev_info, ADDR_CURRENT_KI, dev_info->ctrl_param.pid.ki_cur);              // 電流制御Iゲインを設定
-    f_delay(10);                                                                                       // 書き込み後に少し待機
-    Robstride_WriteFloatData(dev_info, ADDR_CURRENT_FILTER_GAIN, dev_info->ctrl_param.pid.filter_cur); // 電流制御フィルタゲインを設定
-    f_delay(10);                                                                                       // 書き込み後に少し待機
+    bool ok=robstride_current_parameter(dev_info,ADDR_CURRENT_KP,dev_info->ctrl_param.pid.kp_cur,f_delay);
+    ok=robstride_current_parameter(dev_info,ADDR_CURRENT_KI,dev_info->ctrl_param.pid.ki_cur,f_delay) && ok;
+    ok=robstride_current_parameter(dev_info,ADDR_CURRENT_FILTER_GAIN,dev_info->ctrl_param.pid.filter_cur,f_delay) && ok;
+    if (dev_info->device_id==1U || dev_info->device_id==2U) arm_current_config_ok[dev_info->device_id]=ok;
 }
 
 /**
@@ -893,6 +956,8 @@ static HAL_StatusTypeDef robstride_set_target_internal(
     if (device_info == NULL || !isfinite(target_value)) {
         return HAL_ERROR;
     }
+    if (device_info->ctrl_param._enable_flag != 0U &&
+        !Robstride_ArmGuardCheck(device_info)) return HAL_ERROR;
     device_info->ctrl_param._target_value = target_value;
 
     /* VEL_DOBの速度目標はF7に保持し、速度レジスタへは送らない。 */
@@ -913,13 +978,40 @@ static HAL_StatusTypeDef robstride_set_target_internal(
             return robstride_send_current(device_info, 0.0f);
         }
 
+        float velocity_for_dob = feedback.velocity;
+        if (device_info->device_id == 1U || device_info->device_id == 2U) {
+            Robstride_StandardFeedback standard;
+            if (!Robstride_ReadStandardFeedback(device_info,&standard) ||
+                (uint32_t)(HAL_GetTick()-standard.tick)>50U || !isfinite(standard.velocity))
+                return robstride_send_current(device_info,0.0f);
+            /* 肘のみ10ms候補を比較。根本の40msは変更しない。 */
+            velocity_for_dob=ArmVelocityEstimate_UpdateVelocityWithTau(
+                &arm_velocity_estimate[device_info->device_id],standard.velocity,standard.tick,
+                device_info->device_id==1U ? .01f : .04f);
+        }
         const float current = Robstride_Actuator_VelocityDob_Update(
             &(device_info->ctrl_param.velocity_dob),
             &(device_info->ctrl_param.velocity_dob_state),
             target_value,
-            feedback.velocity,
+            velocity_for_dob,
             device_info->ctrl_param.velocity_dob.control_period);
-        return robstride_send_current(device_info, current);
+        const HAL_StatusTypeDef sent = robstride_send_current(device_info, current);
+        const uint8_t id = device_info->device_id;
+        const uint32_t now = HAL_GetTick();
+        if ((id==1U || id==2U) && (uint32_t)(now-arm_dob_log_tick[id])>=20U) {
+            Robstride_StandardFeedback standard;
+            if (Robstride_ReadStandardFeedback(device_info,&standard)) {
+                const ArmDobSample sample = {now,id,target_value,
+                    device_info->ctrl_param.velocity_dob_state.omega_model /
+                        device_info->ctrl_param.velocity_dob.velocity_unit_to_rad_s,
+                    velocity_for_dob,device_info->ctrl_param._req_value,standard.position,
+                    Robstride_StandardReferenceCurrent(device_info,&standard)};
+                arm_dob_log.samples[arm_dob_log.count%4096U] = sample;
+                ++arm_dob_log.count;
+                arm_dob_log_tick[id]=now;
+            }
+        }
+        return sent;
     }
 
     if (!robstride_target_parameter(device_info,
@@ -1042,6 +1134,14 @@ uint8_t Robstride_ControlEnable(Robstride_DeviceInfo *const dev_info, DelayFunct
     if (dev_info == NULL || f_delay == NULL) {
         return 0U;
     }
+    if (!Robstride_ArmGuardCheck(dev_info)) {
+        printf("[ArmGuard] ID %u enable blocked: range/stale/latch\r\n", dev_info->device_id);
+        return 0U;
+    }
+    if ((dev_info->device_id==1U || dev_info->device_id==2U) && !arm_current_config_ok[dev_info->device_id]) {
+        printf("[CurrentTune] ID %u enable blocked: current parameter verify failed\r\n",dev_info->device_id);
+        return 0U;
+    }
     if (dev_info->ctrl_param._mode_configured == 0U) {
         /* 一部機種ではrun_modeの読み出し応答が返らない。Type 2の
          * mode_statusをEnableの成否として使い、読み出し失敗だけで
@@ -1076,6 +1176,8 @@ uint8_t Robstride_ControlEnable(Robstride_DeviceInfo *const dev_info, DelayFunct
  * @retval なし
  */
 uint8_t Robstride_ControlDisable(Robstride_DeviceInfo *const dev_info, DelayFunction_t f_delay) {
+    if (dev_info->device_id == 1U || dev_info->device_id == 2U)
+        arm_velocity_estimate[dev_info->device_id]=(ArmVelocityEstimate){0};
     dev_info->ctrl_param._req_value = 0.0f;
     Robstride_Actuator_VelocityDob_Reset(&(dev_info->ctrl_param.velocity_dob_state));
     const uint8_t success = robstride_control_command_verified(

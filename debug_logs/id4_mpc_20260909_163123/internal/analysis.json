@@ -1,0 +1,12 @@
+{
+  "samples": 339,
+  "span_s": 0.675,
+  "median_interval_ms": 2.0,
+  "max_interval_ms": 3.0,
+  "peak_velocity_command": 825.0,
+  "peak_measured_velocity": 824.5875244140625,
+  "model_tracking_rmse": 43.83692420804305,
+  "ram_ros_position_median_difference_mm": 0.24719238280573563,
+  "source": "F7 RAM snapshot, not reconstructed",
+  "note": "Applied MPC command after safety limiter; data ends when stationary deadband is entered"
+}

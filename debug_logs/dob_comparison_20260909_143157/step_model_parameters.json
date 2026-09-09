@@ -1,0 +1,59 @@
+[
+  {
+    "amplitude": 20.0,
+    "source": "/home/taiyo/Documents/kikaiken/Software/catch2026/26catch_f7/debug_logs/dob_chirp_20260909_142834",
+    "model": "K exp(-Ls)/(1+tau s)",
+    "fitted": {
+      "K": 0.9319997581323498,
+      "tau_s": 0.10271883317885702,
+      "delay_s": 0.005997931276637511
+    },
+    "unity_dc_alternative": {
+      "K": 1,
+      "tau_s": 0.11075722730227013,
+      "delay_s": 0.005407984916730219
+    },
+    "relative_complex_frf_rmse": 0.10131039173802729,
+    "used_bins": 64,
+    "frequency_min": 1.5625,
+    "frequency_max": 7.91015625
+  },
+  {
+    "amplitude": 200.0,
+    "source": "/home/taiyo/Documents/kikaiken/Software/catch2026/26catch_f7/debug_logs/dob_chirp_20260909_143013",
+    "model": "K exp(-Ls)/(1+tau s)",
+    "fitted": {
+      "K": 1.0038430277901431,
+      "tau_s": 0.09943043298303134,
+      "delay_s": 0.0012916462167372154
+    },
+    "unity_dc_alternative": {
+      "K": 1,
+      "tau_s": 0.09901339380343603,
+      "delay_s": 0.0013269835755701659
+    },
+    "relative_complex_frf_rmse": 0.02697147673689475,
+    "used_bins": 66,
+    "frequency_min": 1.5625,
+    "frequency_max": 7.91015625
+  },
+  {
+    "amplitude": 800.0,
+    "source": "/home/taiyo/Documents/kikaiken/Software/catch2026/26catch_f7/debug_logs/dob_chirp_20260909_143157",
+    "model": "K exp(-Ls)/(1+tau s)",
+    "fitted": {
+      "K": 0.865518402685695,
+      "tau_s": 0.11319107420107678,
+      "delay_s": 0.01484403234648187
+    },
+    "unity_dc_alternative": {
+      "K": 1,
+      "tau_s": 0.13216180780433603,
+      "delay_s": 0.013535809258590737
+    },
+    "relative_complex_frf_rmse": 0.06955124121356625,
+    "used_bins": 54,
+    "frequency_min": 1.5625,
+    "frequency_max": 7.91015625
+  }
+]

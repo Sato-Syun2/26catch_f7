@@ -9,6 +9,39 @@
  * 厳密な最短時間保証ではない。 */
 void Id4PositionMpc_Reset(Id4PositionMpc *s) { memset(s, 0, sizeof(*s)); }
 static float clip(float x, float a) { return fmaxf(-a, fminf(a,x)); }
+/* v_dot=alpha(u-v), |u|<=limit の位置・速度終端条件を満たす
+ * 一回切替のbang-bang解。積分関係 dx=integral(u)+v0/alpha を利用する。
+ * 飽和電流/機構端制約を含まないため、実機最短時間の保証ではない。 */
+bool Id4MinimumTimePlan(float x,float v,float target,float alpha,float limit,
+                       float *switch_time,float *arrival_time,float *direction)
+{
+    if (!isfinite(x)||!isfinite(v)||!isfinite(target)||!isfinite(alpha)||
+        !isfinite(limit)||alpha<=0||limit<=0) return false;
+    const float stop_time=log1pf(fabsf(v)/limit)/alpha;
+    const float stop_distance=v/alpha-copysignf(limit*stop_time,v);
+    const float sign=(target-x-stop_distance)>=0 ? 1.0f : -1.0f;
+    float lo=stop_time,hi=stop_time+fabsf(target-x-stop_distance)/limit+1.0f;
+    for (int i=0;i<28;i++) {
+        const float t=.5f*(lo+hi);
+        const float arg=.5f*(1+(1-v/(sign*limit))*expf(-alpha*t));
+        if (arg<=0 || !isfinite(arg)) return false;
+        const float brake=-logf(arg)/alpha;
+        const float dx=sign*limit*(t-2*brake)+v/alpha;
+        if (sign*(dx-(target-x))>=0) hi=t;else lo=t;
+    }
+    const float t=.5f*(lo+hi);
+    const float brake=-logf(.5f*(1+(1-v/(sign*limit))*expf(-alpha*t)))/alpha;
+    *switch_time=fmaxf(0,t-brake);*arrival_time=t;*direction=sign;
+    return isfinite(t)&&brake>=-1e-5f&&*switch_time<=t+1e-5f;
+}
+static float time_profile(Id4PositionMpc *s,float x,float dt)
+{
+    /* 500Hz内で切替。2ms区間の平均入力で切替時刻の量子化を抑える。 */
+    const float begin=s->phase_time,end=begin+dt;
+    const float positive=fmaxf(0,fminf(end,s->switch_time)-begin);
+    const float negative=fmaxf(0,fminf(end,s->arrival_time)-fmaxf(begin,s->switch_time));
+    return id4_safe_velocity(x,s->first_direction*ID4_MPC_SPEED_MAX*(positive-negative)/dt);
+}
 float Id4PositionMpc_Update(Id4PositionMpc *s, float x, float v,
                            float target, float alpha, float dt)
 {
@@ -21,8 +54,25 @@ float Id4PositionMpc_Update(Id4PositionMpc *s, float x, float v,
         Id4PositionMpc_Reset(s);
         s->initialized=true; s->target=target; s->elapsed=ID4_MPC_PERIOD_S;
     }
-    if (s->elapsed < ID4_MPC_PERIOD_S) return s->reference;
+    if (s->elapsed < ID4_MPC_PERIOD_S) {
+        if (s->time_priority_active) {
+            s->phase_time+=dt;s->reference=time_profile(s,x,dt);
+        }
+        return s->reference;
+    }
     s->elapsed=0;
+    s->time_priority_active=false;
+#if ID4_MPC_TIME_PRIORITY
+    /* 終端の位置精度は既存MPCで確保し、遠方の移動時間を直接短縮する。 */
+    /* 初回比較は中央目標に限定。端付近は実績ある二次評価を維持する。 */
+    if (target>=70.0f && target<=450.0f &&
+        (fabsf(target-x)>8.0f || fabsf(v)>80.0f) &&
+        Id4MinimumTimePlan(x,v,target,alpha,ID4_MPC_SPEED_MAX,
+                          &s->switch_time,&s->arrival_time,&s->first_direction)) {
+        s->time_priority_active=true;s->phase_time=0;
+        s->reference=time_profile(s,x,dt);return s->reference;
+    }
+#endif
     /* 微小なモデル/摩擦誤差のみ補償。大移動中の積分蓄積は禁止する。 */
     if (fabsf(target-x)<3 && fabsf(v)<20)
         s->bias=clip(s->bias + .4f*(target-x)*ID4_MPC_PERIOD_S, 1.0f);

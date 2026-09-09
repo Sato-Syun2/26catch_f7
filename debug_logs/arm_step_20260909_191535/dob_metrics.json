@@ -1,0 +1,12 @@
+{
+  "motor": 1,
+  "tau_s": 0.5,
+  "result": "complete",
+  "velocity_rmse_deg_s": 1.015990268983241,
+  "model_rms_deg_s": 0.659619362023785,
+  "reference_current_peak_Arms": 0.1500900685787201,
+  "position_min_deg": -96.93499755859375,
+  "position_max_deg": -96.7152099609375,
+  "max_sample_gap_s": 0.011501725995913148,
+  "normalized_rmse": 1.5402675049835872
+}

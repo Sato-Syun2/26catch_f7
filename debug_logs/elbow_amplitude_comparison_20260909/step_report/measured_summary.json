@@ -1,0 +1,98 @@
+[
+  {
+    "amplitude": 60.0,
+    "frequency_start": 0.5,
+    "frequency_end": 10.0,
+    "seconds": 30.0,
+    "ros_target": {
+      "min": -59.999989137307864,
+      "max": 59.99986330969119,
+      "abs_peak": 59.999989137307864,
+      "rms": 42.476565407800564
+    },
+    "raw_velocity": {
+      "min": -87.8211441040039,
+      "max": 92.27989196777344,
+      "abs_peak": 92.27989196777344,
+      "rms": 30.656646585289465
+    },
+    "reference_current": {
+      "min": -3.3293561935424805,
+      "max": 3.3665621280670166,
+      "abs_peak": 3.3665621280670166,
+      "rms": 1.0948117530010422
+    },
+    "command_current": {
+      "min": -5.755615234375,
+      "max": 5.566186904907227,
+      "abs_peak": 5.755615234375,
+      "rms": 1.9076081925621065
+    },
+    "command_saturation_percent": 0.0,
+    "source": "debug_logs/arm_step_20260909_220438"
+  },
+  {
+    "amplitude": 120.0,
+    "frequency_start": 0.5,
+    "frequency_end": 10.0,
+    "seconds": 30.0,
+    "ros_target": {
+      "min": -119.9999918486471,
+      "max": 119.9999925879935,
+      "abs_peak": 119.9999925879935,
+      "rms": 84.85440945430253
+    },
+    "raw_velocity": {
+      "min": -166.41859436035156,
+      "max": 147.09713745117188,
+      "abs_peak": 166.41859436035156,
+      "rms": 61.96066468759936
+    },
+    "reference_current": {
+      "min": -5.254135608673096,
+      "max": 5.046678066253662,
+      "abs_peak": 5.254135608673096,
+      "rms": 2.1884521870906535
+    },
+    "command_current": {
+      "min": -11.0,
+      "max": 11.0,
+      "abs_peak": 11.0,
+      "rms": 4.441903821238646
+    },
+    "command_saturation_percent": 4.536357571714476,
+    "source": "debug_logs/arm_step_20260909_220547"
+  },
+  {
+    "amplitude": 400.0,
+    "frequency_start": 2.0,
+    "frequency_end": 10.0,
+    "seconds": 30.0,
+    "ros_target": {
+      "min": -399.99997551418403,
+      "max": 399.99993830304123,
+      "abs_peak": 399.99997551418403,
+      "rms": 283.25249060872306
+    },
+    "raw_velocity": {
+      "min": -319.504638671875,
+      "max": 341.8862609863281,
+      "abs_peak": 341.8862609863281,
+      "rms": 110.86506026041143
+    },
+    "reference_current": {
+      "min": -5.153815269470215,
+      "max": 5.307704925537109,
+      "abs_peak": 5.307704925537109,
+      "rms": 3.1248724765081066
+    },
+    "command_current": {
+      "min": -11.0,
+      "max": 11.0,
+      "abs_peak": 11.0,
+      "rms": 9.504171042657122
+    },
+    "command_saturation_percent": 62.53333333333333,
+    "source": "debug_logs/arm_step_20260909_220715"
+  }
+]

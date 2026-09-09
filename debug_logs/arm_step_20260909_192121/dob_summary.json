@@ -1,0 +1,20 @@
+{
+  "elf_sha256": "9a90e38f71a85bdd018be187405682c4f1d10e52cbc132f3fdee6cdf55de6cfe",
+  "count": 4410,
+  "axes": {
+    "1": {
+      "rmse_deg_s": 1.4978947236413838,
+      "model_rms_deg_s": 3.871416508235668,
+      "peak_command_A": 1.5404874086380005,
+      "position_min_deg": -93.30938720703125,
+      "position_max_deg": -89.92559814453125
+    },
+    "2": {
+      "rmse_deg_s": 1.1778289937174196,
+      "model_rms_deg_s": 4.09167086541156,
+      "peak_command_A": 0.9424353241920471,
+      "position_min_deg": 105.1260986328125,
+      "position_max_deg": 110.28970336914062
+    }
+  }
+}

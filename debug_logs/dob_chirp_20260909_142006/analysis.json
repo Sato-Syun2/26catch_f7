@@ -1,0 +1,10 @@
+{
+  "position_min": 247.50335693359375,
+  "position_max": 251.12850952148438,
+  "peak_current_A": 1.1109999418258667,
+  "velocity_rmse_mm_s": 0.6154996780357158,
+  "reference_rms_mm_s": 0.5143193524706828,
+  "feedback_hz": 100.03905008052666,
+  "maximum_feedback_gap_s": 0.013903765997383744,
+  "note": "Reference 10/(s+10); host feedback receive timestamps; target is most recently published command, not acknowledged application time. No fitted time shift. Small-signal test; friction and quantization may dominate."
+}

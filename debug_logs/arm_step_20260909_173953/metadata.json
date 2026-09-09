@@ -1,0 +1,26 @@
+{
+  "move": true,
+  "result": "complete",
+  "final": {
+    "(1, 2)": {
+      "position": 134.22227478027344,
+      "velocity": 3.0194835662841797,
+      "state": 0
+    },
+    "(1, 1)": {
+      "position": -92.6484375,
+      "velocity": -0.0,
+      "state": 0
+    },
+    "(0, 4)": {
+      "position": 0.0,
+      "velocity": -0.0,
+      "state": 0
+    },
+    "(0, 1)": {
+      "position": 0.0,
+      "velocity": 0.0,
+      "state": 0
+    }
+  }
+}

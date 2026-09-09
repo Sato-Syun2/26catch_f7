@@ -1,0 +1,173 @@
+[
+  {
+    "path": "/home/taiyo/Documents/kikaiken/Software/catch2026/26catch_f7/debug_logs/dob_chirp_20260909_142834",
+    "metadata": {
+      "action": "chirp",
+      "amplitude": 20.0,
+      "duration": 60.0,
+      "f0": 1.5,
+      "f1": 10.0,
+      "f0_hz": 1.5,
+      "f1_hz": 10.0,
+      "alpha": 10.0,
+      "command_hz": 100,
+      "control_nominal_hz": 500,
+      "result": "complete"
+    },
+    "analysis": {
+      "position_min": 246.25927734375,
+      "position_max": 252.96475219726562,
+      "peak_current_A": 1.8669999837875366,
+      "peak_velocity_mm_s": 24.52083396911621,
+      "current_near_limit_fraction": 0.0,
+      "velocity_rmse_mm_s": 2.208352785242103,
+      "reference_rms_mm_s": 6.219981038681694,
+      "feedback_hz": 100.06932815070454,
+      "maximum_feedback_gap_s": 0.01367478002794087,
+      "frequency_bands": [
+        {
+          "frequency_hz": [
+            1,
+            2
+          ],
+          "rmse_mm_s": 3.2469116785432512,
+          "measured_rms_mm_s": 9.955962923148546,
+          "reference_rms_mm_s": 9.549481672274212
+        },
+        {
+          "frequency_hz": [
+            2,
+            5
+          ],
+          "rmse_mm_s": 2.012044776592177,
+          "measured_rms_mm_s": 6.728163563453491,
+          "reference_rms_mm_s": 6.585242563132849
+        },
+        {
+          "frequency_hz": [
+            5,
+            10
+          ],
+          "rmse_mm_s": 1.9026576212837945,
+          "measured_rms_mm_s": 3.145057735015504,
+          "reference_rms_mm_s": 3.2722241603026063
+        }
+      ],
+      "note": "Reference 10/(s+10); host feedback receive timestamps; target is most recently published command, not acknowledged application time. No fitted time shift. Current >=3.8A is a measured near-limit indicator, not the internal controller saturation flag."
+    }
+  },
+  {
+    "path": "/home/taiyo/Documents/kikaiken/Software/catch2026/26catch_f7/debug_logs/dob_chirp_20260909_143013",
+    "metadata": {
+      "action": "chirp",
+      "amplitude": 200.0,
+      "duration": 60.0,
+      "f0": 1.5,
+      "f1": 10.0,
+      "f0_hz": 1.5,
+      "f1_hz": 10.0,
+      "alpha": 10.0,
+      "command_hz": 100,
+      "control_nominal_hz": 500,
+      "result": "complete"
+    },
+    "analysis": {
+      "position_min": 249.37081909179688,
+      "position_max": 285.80999755859375,
+      "peak_current_A": 2.553999900817871,
+      "peak_velocity_mm_s": 159.95834350585938,
+      "current_near_limit_fraction": 0.0,
+      "velocity_rmse_mm_s": 7.891073248946162,
+      "reference_rms_mm_s": 62.197121802500284,
+      "feedback_hz": 100.00571040447193,
+      "maximum_feedback_gap_s": 0.013180700014345348,
+      "frequency_bands": [
+        {
+          "frequency_hz": [
+            1,
+            2
+          ],
+          "rmse_mm_s": 6.199196014067286,
+          "measured_rms_mm_s": 94.99027441915715,
+          "reference_rms_mm_s": 95.57890997382533
+        },
+        {
+          "frequency_hz": [
+            2,
+            5
+          ],
+          "rmse_mm_s": 6.96882265140878,
+          "measured_rms_mm_s": 65.56672202618563,
+          "reference_rms_mm_s": 65.75027664273252
+        },
+        {
+          "frequency_hz": [
+            5,
+            10
+          ],
+          "rmse_mm_s": 9.501800736053779,
+          "measured_rms_mm_s": 32.71850272424014,
+          "reference_rms_mm_s": 32.877528655738665
+        }
+      ],
+      "note": "Reference 10/(s+10); host feedback receive timestamps; target is most recently published command, not acknowledged application time. No fitted time shift. Current >=3.8A is a measured near-limit indicator, not the internal controller saturation flag."
+    }
+  },
+  {
+    "path": "/home/taiyo/Documents/kikaiken/Software/catch2026/26catch_f7/debug_logs/dob_chirp_20260909_143157",
+    "metadata": {
+      "action": "chirp",
+      "amplitude": 800.0,
+      "duration": 60.0,
+      "f0": 1.5,
+      "f1": 10.0,
+      "f0_hz": 1.5,
+      "f1_hz": 10.0,
+      "alpha": 10.0,
+      "command_hz": 100,
+      "control_nominal_hz": 500,
+      "result": "complete"
+    },
+    "analysis": {
+      "position_min": 250.42221069335938,
+      "position_max": 411.3965759277344,
+      "peak_current_A": 2.7260000705718994,
+      "peak_velocity_mm_s": 619.3916625976562,
+      "current_near_limit_fraction": 0.0,
+      "velocity_rmse_mm_s": 81.91625147835812,
+      "reference_rms_mm_s": 248.31453125009517,
+      "feedback_hz": 100.663295803392,
+      "maximum_feedback_gap_s": 0.013131978979799896,
+      "frequency_bands": [
+        {
+          "frequency_hz": [
+            1,
+            2
+          ],
+          "rmse_mm_s": 66.51341916783828,
+          "measured_rms_mm_s": 339.00307618878963,
+          "reference_rms_mm_s": 382.6193019434371
+        },
+        {
+          "frequency_hz": [
+            2,
+            5
+          ],
+          "rmse_mm_s": 85.08728249489324,
+          "measured_rms_mm_s": 213.0312290726927,
+          "reference_rms_mm_s": 262.5215111972759
+        },
+        {
+          "frequency_hz": [
+            5,
+            10
+          ],
+          "rmse_mm_s": 83.38060925499941,
+          "measured_rms_mm_s": 95.76721117733715,
+          "reference_rms_mm_s": 131.1712489968545
+        }
+      ],
+      "note": "Reference 10/(s+10); host feedback receive timestamps; target is most recently published command, not acknowledged application time. No fitted time shift. Current >=3.8A is a measured near-limit indicator, not the internal controller saturation flag."
+    }
+  }
+]

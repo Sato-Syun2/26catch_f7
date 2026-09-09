@@ -1,0 +1,232 @@
+{
+  "motor": 1,
+  "source": "debug_logs/arm_step_20260909_194217",
+  "b_rad_s2_per_A": 30.552746940548975,
+  "damping_per_s": 199.99999999999994,
+  "delay_s": 0.035410020923762185,
+  "effective_J": 0.030766464365024126,
+  "effective_d": 6.1532928730048235,
+  "mean_complex_relative_error": 0.5666471696842105,
+  "measurements": [
+    {
+      "frequency_hz": 0.21640652528642088,
+      "current_fundamental_A": 1.3224993218012848,
+      "gain_rad_s_per_A": 0.07523244974090193,
+      "phase_deg": 25.232547068201402
+    },
+    {
+      "frequency_hz": 0.24958883785754543,
+      "current_fundamental_A": 1.3331091570798117,
+      "gain_rad_s_per_A": 0.08730342131800298,
+      "phase_deg": 21.65689400617794
+    },
+    {
+      "frequency_hz": 0.2837443709559418,
+      "current_fundamental_A": 1.3240693328146136,
+      "gain_rad_s_per_A": 0.0990314881260271,
+      "phase_deg": 21.9652973343488
+    },
+    {
+      "frequency_hz": 0.3169973248833203,
+      "current_fundamental_A": 1.3152499957965091,
+      "gain_rad_s_per_A": 0.11166569637156035,
+      "phase_deg": 20.97947121991158
+    },
+    {
+      "frequency_hz": 0.35108539174461145,
+      "current_fundamental_A": 1.2691388103743435,
+      "gain_rad_s_per_A": 0.1300721098509089,
+      "phase_deg": 21.651828340189155
+    },
+    {
+      "frequency_hz": 0.3847304602138525,
+      "current_fundamental_A": 1.2582606460144323,
+      "gain_rad_s_per_A": 0.14320340243320176,
+      "phase_deg": 18.15285531191751
+    },
+    {
+      "frequency_hz": 0.4177140031443073,
+      "current_fundamental_A": 1.2599141832711818,
+      "gain_rad_s_per_A": 0.1552271807239869,
+      "phase_deg": 21.543588042783952
+    },
+    {
+      "frequency_hz": 0.45118779577672563,
+      "current_fundamental_A": 1.183710874965442,
+      "gain_rad_s_per_A": 0.1807743510916062,
+      "phase_deg": 18.533650027076146
+    },
+    {
+      "frequency_hz": 0.48515192806379415,
+      "current_fundamental_A": 1.2103943260168382,
+      "gain_rad_s_per_A": 0.1920141996557223,
+      "phase_deg": 15.493652035548424
+    },
+    {
+      "frequency_hz": 0.5171571277783829,
+      "current_fundamental_A": 1.169150328078969,
+      "gain_rad_s_per_A": 0.21469215260149466,
+      "phase_deg": 12.281515669766732
+    },
+    {
+      "frequency_hz": 0.5534740320222793,
+      "current_fundamental_A": 1.1520745710004736,
+      "gain_rad_s_per_A": 0.23517545542555465,
+      "phase_deg": 14.098767647517441
+    },
+    {
+      "frequency_hz": 0.5846396393447622,
+      "current_fundamental_A": 1.15625528459278,
+      "gain_rad_s_per_A": 0.25175316276694665,
+      "phase_deg": 2.645780186163829
+    },
+    {
+      "frequency_hz": 0.620343764940005,
+      "current_fundamental_A": 1.1742401863302494,
+      "gain_rad_s_per_A": 0.2654352830817954,
+      "phase_deg": -4.268248740418349
+    },
+    {
+      "frequency_hz": 0.6549875376719462,
+      "current_fundamental_A": 1.1157237701033165,
+      "gain_rad_s_per_A": 0.2947323159582456,
+      "phase_deg": 0.0027657299210721875
+    },
+    {
+      "frequency_hz": 0.6827941328838222,
+      "current_fundamental_A": 1.1528452470276433,
+      "gain_rad_s_per_A": 0.29769032492866737,
+      "phase_deg": -8.1242348655631
+    },
+    {
+      "frequency_hz": 0.7212088416228085,
+      "current_fundamental_A": 1.1796075849430046,
+      "gain_rad_s_per_A": 0.3119012828139092,
+      "phase_deg": -9.378238996602372
+    },
+    {
+      "frequency_hz": 0.75437832093726,
+      "current_fundamental_A": 1.1333340690844578,
+      "gain_rad_s_per_A": 0.3398219507556795,
+      "phase_deg": -5.465357423665051
+    },
+    {
+      "frequency_hz": 0.7875602444965836,
+      "current_fundamental_A": 1.2296694754791975,
+      "gain_rad_s_per_A": 0.3295935767699176,
+      "phase_deg": -14.11176112812582
+    },
+    {
+      "frequency_hz": 0.8169405494646709,
+      "current_fundamental_A": 1.1579898904111159,
+      "gain_rad_s_per_A": 0.3648777244636964,
+      "phase_deg": -13.006197515064798
+    },
+    {
+      "frequency_hz": 0.856645069815632,
+      "current_fundamental_A": 1.2684002540806019,
+      "gain_rad_s_per_A": 0.35124882808614144,
+      "phase_deg": -21.05157654276625
+    },
+    {
+      "frequency_hz": 0.8890879106085303,
+      "current_fundamental_A": 1.2601977003411147,
+      "gain_rad_s_per_A": 0.37142963026363,
+      "phase_deg": -19.62307566186686
+    },
+    {
+      "frequency_hz": 0.9189642929480895,
+      "current_fundamental_A": 1.2639033346303414,
+      "gain_rad_s_per_A": 0.3808098896501003,
+      "phase_deg": -18.38344841929935
+    },
+    {
+      "frequency_hz": 0.9524382261612112,
+      "current_fundamental_A": 1.2210098900943702,
+      "gain_rad_s_per_A": 0.4088876584266882,
+      "phase_deg": -15.43762970581023
+    },
+    {
+      "frequency_hz": 0.9879344610822405,
+      "current_fundamental_A": 1.3751457355720471,
+      "gain_rad_s_per_A": 0.37964310761641995,
+      "phase_deg": -24.783959864869946
+    },
+    {
+      "frequency_hz": 1.0247190936412374,
+      "current_fundamental_A": 1.5758965121532054,
+      "gain_rad_s_per_A": 0.34584964664291956,
+      "phase_deg": -37.75402281129784
+    },
+    {
+      "frequency_hz": 1.0533333711550212,
+      "current_fundamental_A": 1.5924840979685086,
+      "gain_rad_s_per_A": 0.35211067333344037,
+      "phase_deg": -33.012437054842984
+    },
+    {
+      "frequency_hz": 1.0876431658860308,
+      "current_fundamental_A": 1.598326854240714,
+      "gain_rad_s_per_A": 0.36703758875128295,
+      "phase_deg": -30.216355101774898
+    },
+    {
+      "frequency_hz": 1.1200750403502648,
+      "current_fundamental_A": 1.7943077484074073,
+      "gain_rad_s_per_A": 0.3367696192262903,
+      "phase_deg": -38.370837925207425
+    },
+    {
+      "frequency_hz": 1.155057944641814,
+      "current_fundamental_A": 1.9790394370794848,
+      "gain_rad_s_per_A": 0.32094207287657417,
+      "phase_deg": -39.94114623760436
+    },
+    {
+      "frequency_hz": 1.1967735654344596,
+      "current_fundamental_A": 2.221342913931824,
+      "gain_rad_s_per_A": 0.2915444825229113,
+      "phase_deg": -42.49966796430167
+    },
+    {
+      "frequency_hz": 1.2239704973437628,
+      "current_fundamental_A": 2.12908388591875,
+      "gain_rad_s_per_A": 0.30937963663096213,
+      "phase_deg": -36.08065675733856
+    },
+    {
+      "frequency_hz": 1.2506044027991154,
+      "current_fundamental_A": 2.3004663371352603,
+      "gain_rad_s_per_A": 0.2957242940335761,
+      "phase_deg": -38.268175257689116
+    },
+    {
+      "frequency_hz": 1.2886392267540638,
+      "current_fundamental_A": 2.5781783410128414,
+      "gain_rad_s_per_A": 0.2701357007096002,
+      "phase_deg": -41.0901097114053
+    },
+    {
+      "frequency_hz": 1.3280158267447415,
+      "current_fundamental_A": 2.6797699733219056,
+      "gain_rad_s_per_A": 0.2665400723701842,
+      "phase_deg": -30.95924462807288
+    },
+    {
+      "frequency_hz": 1.4500790518350135,
+      "current_fundamental_A": 3.0494688064910664,
+      "gain_rad_s_per_A": 0.24645762259450343,
+      "phase_deg": -15.722499062304891
+    }
+  ],
+  "warning": "Closed-loop fundamental describing function at this posture and amplitude; not a globally validated linear plant",
+  "second_order_candidate": {
+    "b": 894.4814002486262,
+    "wn": 103.58622452107637,
+    "zeta": 14.624946238057928,
+    "delay_s": 0.15289592949256753,
+    "mean_complex_relative_error": 0.3108255979989379
+  },
+  "automatic_gain_design_accepted": false,
+  "rejection_reason": "Frequency range is too narrow for crossover/margin certification; elbow fits also have large residuals/boundary solutions. Do not copy fitted J/d into firmware."
+}

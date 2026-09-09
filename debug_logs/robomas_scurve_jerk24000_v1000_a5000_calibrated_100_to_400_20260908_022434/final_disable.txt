@@ -1,0 +1,5 @@
+requester: making request: catch26_interface.srv.UrosF7Param_Request(target='robomaster:4', command='disable', data=0.0)
+
+response:
+catch26_interface.srv.UrosF7Param_Response(success=True, message='disabled')
+

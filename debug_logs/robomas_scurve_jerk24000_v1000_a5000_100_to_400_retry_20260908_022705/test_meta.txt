@@ -1,0 +1,5 @@
+run_dir=26catch_f7/debug_logs/robomas_scurve_jerk24000_v1000_a5000_100_to_400_retry_20260908_022705
+started=2026-09-08T02:27:05+09:00
+target_100_sent=2026-09-08T02:27:08+09:00
+target_400_sent=2026-09-08T02:27:25+09:00
+test_complete=2026-09-08T02:27:43+09:00

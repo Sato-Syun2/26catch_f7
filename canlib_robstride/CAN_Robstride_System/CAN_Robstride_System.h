@@ -63,6 +63,7 @@ void Robstride_ProcessParameter(const uint8_t rxData[], uint8_t device_id);
 void Robstride_ProcessParameterFrame(uint32_t ExtID, const uint8_t rxData[], uint8_t device_id);
 
 void Robstride_ProcessFault(const uint8_t rxData[], uint8_t device_id);
+void Robstride_CurrentDiagnosticPoll(Robstride_DeviceInfo *device);
 
 HAL_StatusTypeDef Robstride_RequestReadParameter(Robstride_DeviceInfo *device_info,
                                                  uint16_t address);
@@ -98,6 +99,24 @@ uint32_t Robstride_TakeCanErrorCount(void);
 uint32_t Robstride_TakeCanErrorCode(void);
 uint32_t Robstride_TakePriorityQueueFullCount(void);
 
+/* 周期試験用。ID1/ID2の順、IRQ内はカウンタ加算だけ行う。 */
+typedef struct {
+    uint32_t target_submit[2];
+    uint32_t target_max_gap_ms[2];
+    uint32_t iq_rx[2];
+    uint32_t position_rx[2];
+    uint32_t velocity_rx[2];
+    uint32_t type2_rx[2];
+    uint32_t tx_complete;
+} Robstride_RateCounters;
+Robstride_RateCounters Robstride_TakeRateCounters(void);
+/* Type2専用の同一フレーム・スナップショット。将来の位置MPCも共用する。 */
+typedef struct { float position, velocity, torque; uint32_t tick; bool valid; } Robstride_StandardFeedback;
+bool Robstride_ReadStandardFeedback(const Robstride_DeviceInfo *device, Robstride_StandardFeedback *feedback);
+bool Robstride_UsesStandardFeedback(const Robstride_DeviceInfo *device);
+/* Type2トルク / 公称トルク定数。Arms相当の参考値で、iqf実測値ではない。 */
+float Robstride_StandardReferenceCurrent(const Robstride_DeviceInfo *device, const Robstride_StandardFeedback *feedback);
+
 /* CAN error callbackから呼び出す。送信失敗時もCANキューを止めない。 */
 void Robstride_WhenCANErrorCallbackCalled(CAN_HandleTypeDef *phcan);
 
@@ -110,6 +129,8 @@ Robstride_FeedbackData Read_Robstride_FeedbackData(Robstride_DeviceInfo *device_
 
 /* Fresh-response counters used to validate service completion. */
 uint32_t Robstride_GetFeedbackSequence(const Robstride_DeviceInfo *device_info);
+/* Type17 mechPos専用。Type2の量子化位置と混ぜず、受信時刻も返す。 */
+bool Robstride_ReadMeasuredPosition(const Robstride_DeviceInfo *device, float *position, uint32_t *tick);
 uint32_t Robstride_GetParameterSequence(const Robstride_DeviceInfo *device_info, uint16_t address);
 
 #endif

@@ -1,0 +1,14 @@
+{
+  "motor": 1,
+  "tau_s": 0.2,
+  "result": "complete",
+  "velocity_rmse_deg_s": 3.2328112616076443,
+  "model_rms_deg_s": 4.092457234698093,
+  "reference_current_peak_Arms": 0.36436548829078674,
+  "position_min_deg": -96.93499755859375,
+  "position_max_deg": -91.749267578125,
+  "max_sample_gap_s": 0.0172005639760755,
+  "normalized_rmse": 0.7899438103343146,
+  "offline_40ms_velocity_rmse_deg_s": 2.2675469491692706,
+  "filter_note": "Offline causal 40ms LPF from 100Hz ROS; not the F7 internal state"
+}

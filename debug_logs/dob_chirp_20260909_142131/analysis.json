@@ -1,0 +1,57 @@
+{
+  "position_min": 245.34585571289062,
+  "position_max": 251.74081420898438,
+  "peak_current_A": 2.009999990463257,
+  "velocity_rmse_mm_s": 1.2183887019769397,
+  "reference_rms_mm_s": 1.5435732679467546,
+  "feedback_hz": 99.64457752091347,
+  "maximum_feedback_gap_s": 0.014435252000112087,
+  "frequency_bands": [
+    {
+      "frequency_hz": [
+        0.2,
+        0.5
+      ],
+      "rmse_mm_s": 1.5973236690437098,
+      "measured_rms_mm_s": 2.6086491354032537,
+      "reference_rms_mm_s": 2.060998589656856
+    },
+    {
+      "frequency_hz": [
+        0.5,
+        1
+      ],
+      "rmse_mm_s": 1.4072283632229965,
+      "measured_rms_mm_s": 2.373374907155117,
+      "reference_rms_mm_s": 1.9376837025228075
+    },
+    {
+      "frequency_hz": [
+        1,
+        2
+      ],
+      "rmse_mm_s": 1.303379245051666,
+      "measured_rms_mm_s": 1.9962543036391254,
+      "reference_rms_mm_s": 1.5952875491399887
+    },
+    {
+      "frequency_hz": [
+        2,
+        5
+      ],
+      "rmse_mm_s": 0.9196141749701672,
+      "measured_rms_mm_s": 1.1085166117160596,
+      "reference_rms_mm_s": 0.9874088875982878
+    },
+    {
+      "frequency_hz": [
+        5,
+        10
+      ],
+      "rmse_mm_s": 0.45537548248683096,
+      "measured_rms_mm_s": 0.1643671210593752,
+      "reference_rms_mm_s": 0.4918417445991375
+    }
+  ],
+  "note": "Reference 10/(s+10); host feedback receive timestamps; target is most recently published command, not acknowledged application time. No fitted time shift. Small-signal test; friction and quantization may dominate."
+}

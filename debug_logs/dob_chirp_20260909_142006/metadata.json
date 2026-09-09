@@ -1,0 +1,11 @@
+{
+  "action": "chirp",
+  "amplitude": 1.0,
+  "duration": 60.0,
+  "f0_hz": 0.2,
+  "f1_hz": 10.0,
+  "alpha": 10.0,
+  "command_hz": 100,
+  "control_nominal_hz": 500,
+  "result": "complete"
+}

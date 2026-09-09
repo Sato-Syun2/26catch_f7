@@ -11,6 +11,7 @@
 #include "usart.h"
 #include "id4_velocity_safety.h"
 #include "PositionMpc.h"
+#include "arm_test_config.h"
 
 // Private Function Prototypes --------------------------------
 static bool get_switch_state(GPIO_TypeDef* limit_port, uint16_t limit_pin, ROBOMAS_SWITCH_TYPE sw_type);
@@ -228,6 +229,11 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
             flag_2 = true;
         }
 
+        /* CANグループは維持し、対象全台に明示的なゼロ電流を送り続ける。 */
+        if (ARM_TEST_DISABLE_ROBOMASTER) {
+            RoboMas_ControlDisable(&dev_info_array[i]);
+            continue;
+        }
         const RoboMas_FeedbackData guard_feedback =
             Get_RoboMas_FeedbackData(&dev_info_array[i]);
         /* 受信途絶時に古い速度を使って逆向き電流を出し続けない。 */
@@ -529,6 +535,7 @@ void RoboMas_send_current(RoboMas_DeviceInfo *device_info, float current, CAN_Ha
 }
 
 void RoboMas_Calibration(RoboMas_DeviceInfo *device_info, float calib_vel, ROBOMAS_SWITCH_TYPE sw_type, GPIO_TypeDef* limit_port, uint16_t limit_pin, CAN_HandleTypeDef *phcan){
+    if (ARM_TEST_DISABLE_ROBOMASTER) return;
     if(device_info->ctrl_param.use_internal_offset != ROBOMAS_USE_OFFSET_POS_CALIB) return;
 
     device_info->ctrl_param._sw_type = sw_type;
@@ -558,6 +565,7 @@ void RoboMas_SetTarget(RoboMas_DeviceInfo *device_info, float target_value) {
 }
 
 void RoboMas_ControlEnable(RoboMas_DeviceInfo *dev_info) {
+    if (ARM_TEST_DISABLE_ROBOMASTER) return;
     if (dev_info->device_id == ROBOMAS_TEST_GUARD_ID &&
         robomas_test_guard_tripped) return;
     dev_info->ctrl_param._enable_flag = true;

@@ -1,0 +1,13 @@
+{
+  "elf_sha256": "74704d98fc5c936411a6a6a4c033ac24a7cc7dce252eb2dbbd9757ad3dca704c",
+  "count": 2203,
+  "axes": {
+    "1": {
+      "rmse_deg_s": 3.1434121222588964,
+      "model_rms_deg_s": 5.49842259420428,
+      "peak_command_A": 4.4995222091674805,
+      "position_min_deg": -83.48207092285156,
+      "position_max_deg": -77.92289733886719
+    }
+  }
+}

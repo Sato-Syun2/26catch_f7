@@ -1,0 +1,44 @@
+[
+  {
+    "path": "debug_logs/arm_step_20260909_183034",
+    "id": 1,
+    "tag": "id1_restore_030A",
+    "result": "abort",
+    "pulses": [
+      {
+        "stage": "current_00_+0.300",
+        "command_A": 0.3,
+        "plateau_A": 0.2831798791885376,
+        "ratio": 0.9439329306284587,
+        "peak_abs_A": 0.353832483291626,
+        "observed_duration_s": 0.2405286569846794,
+        "reached_coast": true,
+        "plateau_std_A": 0.017382703966498794
+      },
+      {
+        "stage": "current_01_-0.300",
+        "command_A": -0.3,
+        "plateau_A": -0.29597994685173035,
+        "ratio": 0.9865998228391012,
+        "peak_abs_A": 0.30158841609954834,
+        "observed_duration_s": 0.2501418640022166,
+        "reached_coast": true,
+        "plateau_std_A": 0.003119791371523653
+      },
+      {
+        "stage": "current_02_+0.300",
+        "command_A": 0.3,
+        "plateau_A": 0.2831711024045944,
+        "ratio": 0.9439036746819814,
+        "peak_abs_A": 0.30945947766304016,
+        "observed_duration_s": 0.24072651099413633,
+        "reached_coast": true,
+        "plateau_std_A": 0.006265942780655943
+      }
+    ],
+    "mean_abs_plateau_error_A": 0.012556357185045866,
+    "within_5percent_count": 1,
+    "peak_abs_current_A": 0.353832483291626,
+    "position_span_deg": 10.0537109375
+  }
+]

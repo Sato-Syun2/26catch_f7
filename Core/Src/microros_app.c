@@ -165,6 +165,14 @@ static volatile uint32_t microros_command_received_count = 0U;
 static volatile uint32_t microros_command_coalesced_count = 0U;
 static uint32_t microros_diagnostics_last_tick = 0U;
 static bool microros_diagnostics_started = false;
+/* UARTを増やさず周期を測るRAMログ。停止後SWDから取り出す。 */
+typedef struct {
+  uint32_t tick, interval, received, coalesced, ring_overrun, priority_full;
+  uint32_t tx_errors, can_errors, can_error_code, loops, loop_gap_ms, enabled_mask;
+  Robstride_RateCounters can;
+} ArmRateSample;
+volatile struct { uint32_t count; ArmRateSample samples[120]; } arm_rate_log;
+static uint32_t arm_rate_loops, arm_rate_loop_gap, arm_rate_last_loop;
 static uint32_t microros_last_feedback_error_tick = 0U;
 
 static void command_callback(const void *msgin);
@@ -1009,7 +1017,8 @@ void MicroRos_ApplyPendingRobstrideCommands(void)
         robstride_waiting_for_first_command[i] = false;
         __set_PRIMASK(unlock_primask);
       }
-      if (waiting_for_first_command &&
+      /* アーム試験ではtopicだけで自動Enableしない。明示serviceを要求する。 */
+      if (false && waiting_for_first_command &&
           !enable_robstride_for_first_command(i)) {
         /* Enable失敗を同じ指令で自動再試行しない。次のROS指令を受信
          * したときだけ、改めてEnableを試行する。 */
@@ -1032,7 +1041,9 @@ void MicroRos_ApplyPendingRobstrideCommands(void)
       }
 
       /* タイムアウト後など、Enable service前の目標値は適用しない。 */
-      if (device->ctrl_param._enable_flag != 0U) {
+      /* DOBの状態更新はRefreshだけで行う。受信頻度依存の二重積分を避ける。 */
+      if (device->ctrl_param._enable_flag != 0U &&
+          device->ctrl_param.ctrl_type != ROBSTRIDE_CTRL_VEL_DOB) {
         apply_robstride_command(device, &command);
       }
     }
@@ -1041,6 +1052,23 @@ void MicroRos_ApplyPendingRobstrideCommands(void)
 
 void MicroRos_RefreshRobstrideTargets(void)
 {
+  const uint32_t rate_now=HAL_GetTick();
+  const uint32_t rate_gap=rate_now-arm_rate_last_loop;
+  if (arm_rate_last_loop && rate_gap>arm_rate_loop_gap) arm_rate_loop_gap=rate_gap;
+  arm_rate_last_loop=rate_now;
+  ++arm_rate_loops;
+  /* 目標の有無に関係なく監視。通信失敗時はDisableを再試行する。 */
+  static bool stop_pending[ROBSTRIDE_DEVICE_STORAGE_COUNT];
+  for (uint32_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
+    Robstride_DeviceInfo *device = &robstride_dev_info_global[i];
+    if (device->ctrl_param._enable_flag && !Robstride_ArmGuardCheck(device)) stop_pending[i] = true;
+    if (stop_pending[i]) {
+      if (!begin_control_transaction()) continue;
+      stop_pending[i] = !Robstride_ControlDisable(device, microros_delay);
+      invalidate_robstride_command(device);
+      end_control_transaction();
+    }
+  }
   static uint8_t normal_target_refresh_divider = 0U;
   bool refresh_normal_targets;
 
@@ -1167,6 +1195,7 @@ void MicroRos_ReportDiagnostics(void)
       MICROROS_DIAGNOSTIC_PERIOD_MS) {
     return;
   }
+  const uint32_t interval=now-microros_diagnostics_last_tick;
   microros_diagnostics_last_tick = now;
 
   const uint32_t received = take_counter(&microros_command_received_count);
@@ -1176,6 +1205,18 @@ void MicroRos_ReportDiagnostics(void)
   const uint32_t tx_errors = Robstride_TakeTxErrorCount();
   const uint32_t can_errors = Robstride_TakeCanErrorCount();
   const uint32_t can_error_code = Robstride_TakeCanErrorCode();
+  uint32_t rate_enabled=0U;
+  for (uint32_t i=0U;i<ROBSTRIDE_DEVICE_COUNT;++i) {
+    const Robstride_DeviceInfo *dev=&robstride_dev_info_global[i];
+    if (dev->device_id>=1U && dev->device_id<=2U && dev->ctrl_param._enable_flag)
+      rate_enabled |= 1U<<(dev->device_id-1U);
+  }
+  const ArmRateSample rate_sample={now,interval,received,coalesced,ring_overrun,
+    priority_queue_full,tx_errors,can_errors,can_error_code,arm_rate_loops,
+    arm_rate_loop_gap,rate_enabled,Robstride_TakeRateCounters()};
+  arm_rate_log.samples[arm_rate_log.count%120U]=rate_sample;
+  ++arm_rate_log.count;
+  arm_rate_loops=0U; arm_rate_loop_gap=0U;
 
   if (received > MICROROS_COMMAND_NOMINAL_HZ || coalesced > 0U) {
     printf("Warning: uros_f7_command overload: %lu callbacks/s, "
@@ -1249,10 +1290,29 @@ static void set_robstride_feedback(
   output->info.type = catch26_interface__msg__DeviceInfo__TYPE_ROBSTRIDE;
   output->info.id = device->device_id;
   output->position = feedback.position;
+  /* 通常はmechPos、DOB運転中はType2専用キャッシュ。非同期混入を防ぐ。 */
+  bool position_fresh = true;
+  if (CanDevices_IsInitialized()) {
+    float position;
+    uint32_t tick;
+    const bool valid=Robstride_ReadMeasuredPosition(device,&position,&tick);
+    if (valid) output->position=position;
+    position_fresh=valid && (uint32_t)(HAL_GetTick()-tick)<=50U;
+  }
   output->velocity = feedback.velocity;
   output->current = feedback.current;
+  if (Robstride_UsesStandardFeedback(device)) {
+    Robstride_StandardFeedback standard;
+    if (Robstride_ReadStandardFeedback(device,&standard)) {
+      output->position=standard.position;
+      output->velocity=standard.velocity;
+      /* DOB運転時のみ参考電流。正確なiqfは明示Type17読み取りで確認する。 */
+      output->current=Robstride_StandardReferenceCurrent(device,&standard);
+      position_fresh=(uint32_t)(HAL_GetTick()-standard.tick)<=50U;
+    } else position_fresh=false;
+  }
   output->state = robstride_state(device, &feedback);
-  output->unit_message_code = feedback.get_flag
+  output->unit_message_code = feedback.get_flag && position_fresh
                                   ? catch26_interface__msg__UrosF7MotorUnitFeedback__CODE_NORMAL
                                   : catch26_interface__msg__UrosF7MotorUnitFeedback__CODE_DISCONNECTION;
 }

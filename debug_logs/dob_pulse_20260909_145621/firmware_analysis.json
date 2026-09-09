@@ -1,0 +1,18 @@
+{
+  "samples": 458,
+  "median_dt_ms": 2.0000000000000018,
+  "max_dt_ms": 6.000000000000005,
+  "missing_or_corrupt_serial_records": 54,
+  "position_range_mm": [
+    249.459,
+    296.879
+  ],
+  "peak_velocity_mm_s": 375.833,
+  "peak_current_command_A": 6.0,
+  "peak_unsaturated_current_A": 35.265,
+  "saturated_fraction": 0.13755458515283842,
+  "model_rmse_mm_s": 11.205386034165556,
+  "peak_acceleration_22ms_smooth_mm_s2": 7942.768181818272,
+  "zero_command_start_velocity_mm_s": 372.625,
+  "travel_after_zero_mm": 17.636000000000024
+}

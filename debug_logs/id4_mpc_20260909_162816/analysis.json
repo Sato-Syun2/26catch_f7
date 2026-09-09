@@ -1,0 +1,15 @@
+{
+  "result": "complete",
+  "initial": 99.9493408203125,
+  "target": 400.0,
+  "final": 399.8903503417969,
+  "settle_s": 0.6785270349937491,
+  "position_settle_s": 0.6199511529994197,
+  "peak_speed": 803.6875,
+  "peak_current": 5.784999847412109,
+  "position_min": 99.9493408203125,
+  "position_max": 399.9413757324219,
+  "final_second_max_error": 0.109649658203125,
+  "fb_hz": 100.03366441507444,
+  "fb_max_gap": 0.013274744967930019
+}

@@ -35,6 +35,8 @@
 #include "CAN_Robstride.h"
 #include "CAN_Robstride_Def.h"
 #include "Robstride_utils.h"
+#include "robstride_constant.h"
+#include "arm_test_config.h"
 #include "CAN_RoboMas.h"
 #include "CAN_RoboMas_Def.h"
 #include "RoboMas_utils.h"
@@ -255,6 +257,7 @@ void StartCanDevicesTask(void const *argument)
 static void start_robomas_calibration_if_ready(
     bool calibration_started[ROBOMAS_DEVICE_STORAGE_COUNT])
 {
+  if (ARM_TEST_DISABLE_ROBOMASTER) return;
 #if ROBOMAS_C610_COUNT > 0U
   if (!calibration_started[0] && robomas_fb[0].get_flag != 0U) {
     printf("[RoboMas] ID %u feedback ready; calibration start\r\n",
@@ -305,6 +308,7 @@ void StartRobstrideTask(void const * argument)
   }
 
   uint8_t feedback_divider = 0U;
+  TickType_t robstride_last_wake_time = xTaskGetTickCount();
   for (;;) {
     MicroRos_CheckRobstrideCommandTimeout();
 
@@ -315,22 +319,28 @@ void StartRobstrideTask(void const * argument)
     /* 目標値の入力はSetTarget()へ集約し、VEL_DOBも同じ経路で500 Hz実行する。 */
     MicroRos_RefreshRobstrideTargets();
 
-    /*
-     * 既存のGet経路を意図的に維持し、100 Hzで各モーターの
-     * Type 17パラメータ要求を発行する。サービス通信は別の優先キュー
-     * と送信確認経路を通るため、この過負荷条件でも応答を混同しない。
-     */
+    /* 通常/Disable中は従来の全項目100Hz。DOB運転中は目標書き込みの
+     * Type2応答のみを使用し、追加のパラメーター読み取りは発行しない。 */
     ++feedback_divider;
-    if (feedback_divider >= 5U) {
-      for (uint8_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
+    for (uint8_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
+      Robstride_DeviceInfo *dev=&robstride_dev_info_global[i];
+      Robstride_CurrentDiagnosticPoll(dev); /* 一時的な肘の電流追従検証。応答待ちはしない。 */
+      if (Robstride_UsesStandardFeedback(dev)) {
+        feedback_data[i]=Read_Robstride_FeedbackData(dev);
+      } else if (feedback_divider >= ARM_TEST_FB_DIVIDER) {
         feedback_data[i] = Get_Robstride_FeedbackData(
-            &robstride_dev_info_global[i]);
+            dev);
       }
+    }
+    if (feedback_divider >= ARM_TEST_FB_DIVIDER) {
       feedback_divider = 0U;
     }
 
     HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
-    osDelay(2U);
+    /* 長いservice待ちの後にcatch-up連続計算を行わない。 */
+    if ((TickType_t)(xTaskGetTickCount()-robstride_last_wake_time) >= pdMS_TO_TICKS(2U))
+      robstride_last_wake_time=xTaskGetTickCount();
+    vTaskDelayUntil(&robstride_last_wake_time,pdMS_TO_TICKS(2U));
   }
   /* USER CODE END StartRobstrideTask */
 }

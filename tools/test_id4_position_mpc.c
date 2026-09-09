@@ -26,6 +26,14 @@ static void trial(float initial,float target) {
 }
 int main(void) {
     assert(ID4_MPC_SPEED_MAX == 825.0f);
+    for(int vi=-800;vi<=800;vi+=200) {
+        float sw,end,sign;
+        assert(Id4MinimumTimePlan(200,vi,400,20,825,&sw,&end,&sign));
+        float v1=vi*expf(-20*sw)+sign*825*(1-expf(-20*sw));
+        float vend=v1*expf(-20*(end-sw))-sign*825*(1-expf(-20*(end-sw)));
+        float dx=sign*825*(2*sw-end)+vi/20.0f;
+        assert(fabsf(vend)<.01f);assert(fabsf(dx-200)<.01f);
+    }
     trial(0,100);trial(100,400);trial(400,100);trial(100,520);trial(520,0);
     /* 毎回1反復で打ち切られた場合にも収束する初期軌道を確認。 */
     budget_test=true;trial(100,520);trial(520,0);

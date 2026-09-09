@@ -1,0 +1,56 @@
+local_time:
+  sec: 90
+  nanosec: 835000000
+feedback:
+- info:
+    type: 1
+    id: 2
+  position: 139.25015258789062
+  velocity: -3.6544241905212402
+  current: 0.27411460876464844
+  state: 1
+  unit_message_code: 1
+- info:
+    type: 1
+    id: 1
+  position: -98.09402465820312
+  velocity: 0.04371320828795433
+  current: -0.3712010383605957
+  state: 1
+  unit_message_code: 1
+- info:
+    type: 0
+    id: 4
+  position: 99.88320922851562
+  velocity: 33.412498474121094
+  current: 3.638000011444092
+  state: 1
+  unit_message_code: 1
+- info:
+    type: 0
+    id: 1
+  position: 0.0
+  velocity: 0.0
+  current: 0.009999999776482582
+  state: 1
+  unit_message_code: 1
+last_command:
+  command:
+  - info:
+      type: 1
+      id: 2
+    position: 139.1124725341797
+    velocity: 0.0
+    current: 0.0
+    unit_option: 0
+  - info:
+      type: 1
+      id: 1
+    position: -98.1426010131836
+    velocity: 0.0
+    current: 0.0
+    unit_option: 0
+  option: 0
+optional_datas: []
+message: ok
+---

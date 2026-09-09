@@ -1,0 +1,50 @@
+[
+  {
+    "amplitude": 60.0,
+    "source": "debug_logs/arm_step_20260909_220438",
+    "frequency_fit_min": 0.733813567058006,
+    "frequency_fit_max": 9.5,
+    "method": "Causal FIR 76 taps, dt=20ms, regularization towards ideal tau=0.1s impulse; DC gain constrained to 1; h[0]=h[-1]=0",
+    "lambda_main": 10,
+    "lambda_sensitivity": [
+      1,
+      10,
+      100
+    ],
+    "relative_complex_frf_rmse": 0.20514586995743792,
+    "measured_step": false,
+    "large_signal_step_prediction_valid": null
+  },
+  {
+    "amplitude": 120.0,
+    "source": "debug_logs/arm_step_20260909_220547",
+    "frequency_fit_min": 0.733813567058006,
+    "frequency_fit_max": 9.5,
+    "method": "Causal FIR 76 taps, dt=20ms, regularization towards ideal tau=0.1s impulse; DC gain constrained to 1; h[0]=h[-1]=0",
+    "lambda_main": 10,
+    "lambda_sensitivity": [
+      1,
+      10,
+      100
+    ],
+    "relative_complex_frf_rmse": 0.1600649124159575,
+    "measured_step": false,
+    "large_signal_step_prediction_valid": null
+  },
+  {
+    "amplitude": 400.0,
+    "source": "debug_logs/arm_step_20260909_220715",
+    "frequency_fit_min": 2.3,
+    "frequency_fit_max": 9.5,
+    "method": "Causal FIR 76 taps, dt=20ms, regularization towards ideal tau=0.1s impulse; DC gain constrained to 1; h[0]=h[-1]=0",
+    "lambda_main": 10,
+    "lambda_sensitivity": [
+      1,
+      10,
+      100
+    ],
+    "relative_complex_frf_rmse": 0.18657356345252318,
+    "measured_step": false,
+    "large_signal_step_prediction_valid": false
+  }
+]

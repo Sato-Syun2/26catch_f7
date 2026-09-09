@@ -1,0 +1,106 @@
+[
+  {
+    "directory": "debug_logs/arm_step_20260909_224739",
+    "tag": "tuning_baseline_reconnected",
+    "raw_complex_relative_error_mean": 0.8038760935231122,
+    "raw_complex_relative_error_below3hz": 0.2583536832867586,
+    "raw_gain_at_last": 3.152088529018309,
+    "raw_phase_at_last": 78.45344231503745,
+    "stop_position_pp": 0.04398345947265625,
+    "stop_command_rms": 0.4202894452654566,
+    "current_peak": 5.616249084472656,
+    "whole_rate_windows": 29,
+    "target1_range": [
+      500,
+      500
+    ],
+    "type2_1_range": [
+      500,
+      500
+    ],
+    "errors": {
+      "ring_overrun": 0,
+      "priority_full": 0,
+      "tx_errors": 0,
+      "can_errors": 0
+    }
+  },
+  {
+    "directory": "debug_logs/arm_step_20260909_225037",
+    "tag": "tuning_iqf_baseline",
+    "raw_complex_relative_error_mean": 0.8006194246891948,
+    "raw_complex_relative_error_below3hz": 0.2604611553218456,
+    "raw_gain_at_last": 2.309539298553389,
+    "raw_phase_at_last": 85.49497637640906,
+    "stop_position_pp": 0.9008712768554688,
+    "stop_command_rms": 1.768881113372454,
+    "current_peak": 5.836595058441162,
+    "whole_rate_windows": 29,
+    "target1_range": [
+      500,
+      500
+    ],
+    "type2_1_range": [
+      500,
+      500
+    ],
+    "errors": {
+      "ring_overrun": 0,
+      "priority_full": 0,
+      "tx_errors": 0,
+      "can_errors": 0
+    }
+  },
+  {
+    "directory": "debug_logs/arm_step_20260909_225320",
+    "tag": "tuning_lpf10ms_p14i20",
+    "raw_complex_relative_error_mean": 0.40861529339701436,
+    "raw_complex_relative_error_below3hz": 0.20472328410019758,
+    "raw_gain_at_last": 0.8776256441614224,
+    "raw_phase_at_last": 43.76628011921769,
+    "stop_position_pp": 1.40631103515625,
+    "stop_command_rms": 7.898149235781682,
+    "current_peak": 11.0,
+    "whole_rate_windows": 29,
+    "target1_range": [
+      500,
+      500
+    ],
+    "type2_1_range": [
+      500,
+      500
+    ],
+    "errors": {
+      "ring_overrun": 0,
+      "priority_full": 0,
+      "tx_errors": 0,
+      "can_errors": 0
+    }
+  },
+  {
+    "directory": "debug_logs/arm_step_20260909_225606",
+    "tag": "tuning_lpf10ms_p4i10",
+    "raw_complex_relative_error_mean": 0.738601889389651,
+    "raw_complex_relative_error_below3hz": 0.572511625906782,
+    "raw_gain_at_last": 0.2965625438766066,
+    "raw_phase_at_last": 102.15786346216859,
+    "stop_position_pp": 0.0,
+    "stop_command_rms": 0.5752664455445264,
+    "current_peak": 3.7789676189422607,
+    "whole_rate_windows": 29,
+    "target1_range": [
+      500,
+      500
+    ],
+    "type2_1_range": [
+      500,
+      500
+    ],
+    "errors": {
+      "ring_overrun": 0,
+      "priority_full": 0,
+      "tx_errors": 0,
+      "can_errors": 0
+    }
+  }
+]

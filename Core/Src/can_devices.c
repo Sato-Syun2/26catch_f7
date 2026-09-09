@@ -52,16 +52,16 @@ static void configure_robstride_velocity_dob(
     const bool current_limit_enable,
     const bool torque_limit_enable)
 {
-    parameters->J = 0.0002715f;
-    parameters->d = 0.000465f;
+    parameters->J = 0.607f; /* CAD根本・伸展姿勢。初期試験は固定公称値。 */
+    parameters->d = 0.02f; /* 未同定。低帯域試験用の仮値。 */
     parameters->K_tau = 1.22f;
-    parameters->dob_bandwidth = 0.8111f;
-    parameters->velocity_kp = 0.0f;
-    parameters->velocity_ki = 0.000005858f;
+    parameters->dob_bandwidth = 3.0f;
+    parameters->velocity_kp = 2.0f;
+    parameters->velocity_ki = 0.5f;
     parameters->velocity_kd = 0.0f;
-    parameters->reference_alpha = 0.032445f;
+    parameters->reference_alpha = 5.0f; /* 締結後の再同定: tau=0.2sから */
     parameters->velocity_reference_limit = velocity_reference_limit;
-    parameters->current_limit = current_limit;
+    parameters->current_limit = fminf(current_limit,2.0f); /* 締結後の段階試験2A */
     /* 初期K_tau=1.0f [Nm/A]に基づく有効なトルク値を保持する。適用可否はflagで決める。 */
     parameters->torque_limit = current_limit * parameters->K_tau;
     parameters->velocity_reference_limit_enable =
@@ -323,13 +323,13 @@ static void configure_robstride_common(Robstride_DeviceInfo *device)
     // ctrl->ctrl_type = ROBSTRIDE_CTRL_CURRENT;
     // ctrl->ctrl_type = ROBSTRIDE_CTRL_VEL_DOB;
     /* ROS指令が止まったときの自動Disableをモーターごとに切り替える。 */
-    ctrl->ros_topic_timeout_enable = false;
+    ctrl->ros_topic_timeout_enable = true;
     ctrl->velocity_limit = ROBSTRIDE_VELOCITY_LIMIT_ENABLE;
     ctrl->current_limit = ROBSTRIDE_CURRENT_LIMIT_ENABLE;
     ctrl->torque_limit = ROBSTRIDE_TORQUE_LIMIT_DISABLE;
     ctrl->rotation = ROBSTRIDE_ROT_CW;
-    ctrl->velocity_limit_size = 1.57079632679f;
-    ctrl->current_limit_size = 2.0f;
+    ctrl->velocity_limit_size = 0.2617993878f; /* 初期試験15deg/s */
+    ctrl->current_limit_size = 3.0f;
     ctrl->torque_limit_size = 17.0f;
     ctrl->quant_per_rot = 360.0f / (2.0f * 3.14159265359f);
     configure_robstride_velocity_dob(&ctrl->velocity_dob,
@@ -342,6 +342,7 @@ static void configure_robstride_common(Robstride_DeviceInfo *device)
                                          ROBSTRIDE_CURRENT_LIMIT_ENABLE,
                                      ctrl->torque_limit ==
                                          ROBSTRIDE_TORQUE_LIMIT_ENABLE);
+    ctrl->velocity_dob.velocity_reference_limit = 10.471975512f; /* DOB入力600deg/s、通常PPの速度上限とは別 */
 }
 
 /* Robstride スロット 0 の設定。 */
@@ -350,22 +351,25 @@ static void configure_robstride_0(void)
 {
     Robstride_Ctrl_StructTypedef *ctrl = &robstride_dev_info_global[0].ctrl_param;
     configure_robstride_common(&robstride_dev_info_global[0]);
+    ctrl->velocity_dob.velocity_kp = 12.0f;
+    ctrl->velocity_dob.velocity_ki = 12.0f; /* PI候補: P維持、Iの低周波追従効果を比較 */
 
-    /* ID2（根本）は速度制限を無効化し、通常確認用に2Aへ設定する。 */
-    ctrl->velocity_limit = ROBSTRIDE_VELOCITY_LIMIT_DISABLE;
-    ctrl->velocity_dob.velocity_reference_limit = 44.0f;
-    ctrl->velocity_dob.velocity_reference_limit_enable = false;
-    ctrl->velocity_limit_size = 44.0f; /* Robstride_02の速度上限 */
+    /* ID2（根本）の初期アーム試験は15deg/s・2A。 */
+    ctrl->velocity_limit = ROBSTRIDE_VELOCITY_LIMIT_ENABLE;
+    ctrl->velocity_dob.velocity_reference_limit = 10.471975512f;
+    ctrl->velocity_dob.current_limit = 16.0f; /* 実験3A制限解除、RS02 iq_ref仕様上限 */
+    ctrl->velocity_dob.velocity_reference_limit_enable = true;
+    ctrl->velocity_limit_size = 0.2617993878f;
     ctrl->current_limit = ROBSTRIDE_CURRENT_LIMIT_ENABLE;
-    ctrl->current_limit_size = 2.0f; /* 通常確認用の電流上限 */
+    ctrl->current_limit_size = 16.0f; /* 相電流23Apkではなくiq_refの16A範囲に制限 */
     ctrl->offset_pos = 8.0f;
     ctrl->pid.kp_pos = 7.0f;
     ctrl->pid.kp_vel = 6.0f;
     ctrl->pid.ki_vel = 0.02f;
     ctrl->pid.filter_vel = 0.06f;
-    ctrl->pid.kp_cur = 0.05f;
-    ctrl->pid.ki_cur = 0.05f;
-    ctrl->pid.filter_cur = 0.06f;
+    ctrl->pid.kp_cur = 0.17f;
+    ctrl->pid.ki_cur = 0.012f;
+    ctrl->pid.filter_cur = 0.10f;
 }
 #endif
 
@@ -375,15 +379,23 @@ static void configure_robstride_1(void)
 {
     Robstride_Ctrl_StructTypedef *ctrl = &robstride_dev_info_global[1].ctrl_param;
     configure_robstride_common(&robstride_dev_info_global[1]);
+    ctrl->velocity_dob.J = 0.27f; /* 60deg/sの低周波入出力から得た有効モデル候補 */
+    ctrl->velocity_dob.d = 2.0f; /* 摩擦を含む局所近似。物理粘性の確定値ではない。 */
+    ctrl->velocity_dob.velocity_kp = 4.0f; /* 10ms FBのノイズ増幅を抑える比較候補 */
+    ctrl->velocity_dob.velocity_ki = 10.0f;
+    ctrl->velocity_dob.reference_alpha = 10.0f; /* 肘tau=0.1s候補 */
+    ctrl->velocity_dob.K_tau = 0.94f; /* 公称Arms値。電流単位換算は今後の同定対象。 */
+    ctrl->current_limit_size = 11.0f; /* 実験5A制限解除、EL05 iq_ref仕様上限 */
+    ctrl->velocity_dob.current_limit = 11.0f;
 
     ctrl->offset_pos = 67.0f;
     ctrl->pid.kp_pos = 7.0f;
     ctrl->pid.kp_vel = 6.0f;
     ctrl->pid.ki_vel = 0.02f;
     ctrl->pid.filter_vel = 0.06f;
-    ctrl->pid.kp_cur = 0.05f;
-    ctrl->pid.ki_cur = 0.05f;
-    ctrl->pid.filter_cur = 0.06f;
+    ctrl->pid.kp_cur = 0.17f;
+    ctrl->pid.ki_cur = 0.012f;
+    ctrl->pid.filter_cur = 0.10f;
 }
 #endif
 

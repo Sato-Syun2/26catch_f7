@@ -1,0 +1,30 @@
+{
+  "move": true,
+  "dob": true,
+  "velocity_motor": 1,
+  "velocity_amplitude_deg_s": 3.0,
+  "frequency_hz": 0.5,
+  "result": "complete",
+  "final": {
+    "(1, 2)": {
+      "position": 134.5426483154297,
+      "velocity": 2.6145107746124268,
+      "state": 0
+    },
+    "(1, 1)": {
+      "position": -91.11767578125,
+      "velocity": -0.0,
+      "state": 0
+    },
+    "(0, 4)": {
+      "position": 0.0,
+      "velocity": -0.0,
+      "state": 0
+    },
+    "(0, 1)": {
+      "position": 0.0,
+      "velocity": 0.0,
+      "state": 0
+    }
+  }
+}

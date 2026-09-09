@@ -1,0 +1,24 @@
+{
+  "1": {
+    "source": "debug_logs/arm_step_20260909_194217",
+    "target_tau_s": 0.1,
+    "fit_gain": 0.8697688924682356,
+    "fit_tau_s": 0.06837593499932522,
+    "frequency_min_hz": 0.21640652528642088,
+    "frequency_max_hz": 1.4500790518350135,
+    "mean_complex_relative_error": 0.04336561992763306,
+    "max_complex_relative_error": 0.12362675920747188,
+    "note": "Empirical local first-order approximation, not proven fastest achievable model; no extrapolation outside measured posture/amplitude/frequency"
+  },
+  "2": {
+    "source": "debug_logs/arm_step_20260909_194429",
+    "target_tau_s": 0.2,
+    "fit_gain": 0.9278273388983893,
+    "fit_tau_s": 0.15056261424639703,
+    "frequency_min_hz": 0.21172085566863202,
+    "frequency_max_hz": 0.7879775168018477,
+    "mean_complex_relative_error": 0.031233435286416936,
+    "max_complex_relative_error": 0.06771247179397329,
+    "note": "Empirical local first-order approximation, not proven fastest achievable model; no extrapolation outside measured posture/amplitude/frequency"
+  }
+}

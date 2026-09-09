@@ -1,0 +1,134 @@
+[
+  {
+    "path": "debug_logs/arm_step_20260909_182959",
+    "id": 1,
+    "tag": "id1_restore",
+    "result": "complete",
+    "pulses": [
+      {
+        "stage": "current_00_+0.200",
+        "command_A": 0.2,
+        "plateau_A": 0.20109903812408447,
+        "ratio": 1.0054951906204224,
+        "peak_abs_A": 0.20564034581184387,
+        "observed_duration_s": 0.23912847600877285,
+        "reached_coast": true,
+        "plateau_std_A": 0.0034123356744082964
+      },
+      {
+        "stage": "current_01_-0.200",
+        "command_A": -0.2,
+        "plateau_A": -0.20028480142354965,
+        "ratio": 1.0014240071177483,
+        "peak_abs_A": 0.20149864256381989,
+        "observed_duration_s": 0.23982281796634197,
+        "reached_coast": true,
+        "plateau_std_A": 0.0010581246730812768
+      },
+      {
+        "stage": "current_02_+0.200",
+        "command_A": 0.2,
+        "plateau_A": 0.20279648154973984,
+        "ratio": 1.0139824077486992,
+        "peak_abs_A": 0.20538417994976044,
+        "observed_duration_s": 0.24038652598392218,
+        "reached_coast": true,
+        "plateau_std_A": 0.002068652922387059
+      },
+      {
+        "stage": "current_03_-0.200",
+        "command_A": -0.2,
+        "plateau_A": -0.200352743268013,
+        "ratio": 1.001763716340065,
+        "peak_abs_A": 0.20351079106330872,
+        "observed_duration_s": 0.25007452798308805,
+        "reached_coast": true,
+        "plateau_std_A": 0.0017882759907673158
+      },
+      {
+        "stage": "current_04_+0.200",
+        "command_A": 0.2,
+        "plateau_A": 0.2019253596663475,
+        "ratio": 1.0096267983317375,
+        "peak_abs_A": 0.20337599515914917,
+        "observed_duration_s": 0.23989539901958779,
+        "reached_coast": true,
+        "plateau_std_A": 0.0017197333350724784
+      },
+      {
+        "stage": "current_05_-0.200",
+        "command_A": -0.2,
+        "plateau_A": -0.1996699869632721,
+        "ratio": 0.9983499348163605,
+        "peak_abs_A": 0.2044840008020401,
+        "observed_duration_s": 0.23955896002007648,
+        "reached_coast": true,
+        "plateau_std_A": 0.0017578271958772112
+      },
+      {
+        "stage": "current_06_+0.200",
+        "command_A": 0.2,
+        "plateau_A": 0.16237807273864746,
+        "ratio": 0.8118903636932373,
+        "peak_abs_A": 0.1770074963569641,
+        "observed_duration_s": 0.23997874703491107,
+        "reached_coast": true,
+        "plateau_std_A": 0.020236962399602456
+      },
+      {
+        "stage": "current_07_-0.200",
+        "command_A": -0.2,
+        "plateau_A": -0.13908261060714722,
+        "ratio": 0.6954130530357361,
+        "peak_abs_A": 0.18053358793258667,
+        "observed_duration_s": 0.24024596897652373,
+        "reached_coast": true,
+        "plateau_std_A": 0.025527022233345086
+      },
+      {
+        "stage": "current_08_+0.200",
+        "command_A": 0.2,
+        "plateau_A": 0.15300673246383667,
+        "ratio": 0.7650336623191833,
+        "peak_abs_A": 0.1756533682346344,
+        "observed_duration_s": 0.24025948700727895,
+        "reached_coast": true,
+        "plateau_std_A": 0.016664436735356954
+      },
+      {
+        "stage": "current_09_-0.200",
+        "command_A": -0.2,
+        "plateau_A": -0.1494690105319023,
+        "ratio": 0.7473450526595116,
+        "peak_abs_A": 0.17884594202041626,
+        "observed_duration_s": 0.23894825100433081,
+        "reached_coast": true,
+        "plateau_std_A": 0.024198330993863933
+      },
+      {
+        "stage": "current_10_+0.200",
+        "command_A": 0.2,
+        "plateau_A": 0.13772091269493103,
+        "ratio": 0.6886045634746552,
+        "peak_abs_A": 0.16952398419380188,
+        "observed_duration_s": 0.2398531690123491,
+        "reached_coast": true,
+        "plateau_std_A": 0.014904473961399373
+      },
+      {
+        "stage": "current_11_-0.200",
+        "command_A": -0.2,
+        "plateau_A": -0.11521004885435104,
+        "ratio": 0.5760502442717552,
+        "peak_abs_A": 0.16535906493663788,
+        "observed_duration_s": 0.24994544900255278,
+        "reached_coast": true,
+        "plateau_std_A": 0.029064926085823256
+      }
+    ],
+    "mean_abs_plateau_error_A": 0.029160087431470555,
+    "within_5percent_count": 6,
+    "peak_abs_current_A": 0.20564034581184387,
+    "position_span_deg": 0.19049072265625
+  }
+]

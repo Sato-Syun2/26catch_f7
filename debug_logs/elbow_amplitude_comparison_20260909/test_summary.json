@@ -1,0 +1,206 @@
+[
+  {
+    "source": "debug_logs/arm_step_20260909_220438",
+    "amplitude": 60.0,
+    "result": "complete",
+    "frequency_start": 0.5,
+    "frequency_end": 10.0,
+    "duration": 30.0,
+    "current_command_peak": 5.755615234375,
+    "saturation_percent": 0.0,
+    "raw_velocity_peak": 92.27989196777344,
+    "initial": {
+      "1": 88.99462890625,
+      "2": 0.364837646484375
+    },
+    "final": {
+      "(1, 2)": {
+        "position": 0.4073486328125,
+        "velocity": -3.5444107055664062,
+        "state": 0
+      },
+      "(1, 1)": {
+        "position": 88.92626953125,
+        "velocity": -0.0,
+        "state": 0
+      },
+      "(0, 4)": {
+        "position": 0.004364013671875,
+        "velocity": -0.0,
+        "state": 0
+      },
+      "(0, 1)": {
+        "position": 0.0,
+        "velocity": 0.0,
+        "state": 0
+      }
+    },
+    "rate_whole_chirp_windows": 29,
+    "rate_min_max": {
+      "target1": [
+        500,
+        500
+      ],
+      "type2_1": [
+        500,
+        500
+      ],
+      "ring_overrun": [
+        0,
+        0
+      ],
+      "priority_full": [
+        0,
+        0
+      ],
+      "tx_errors": [
+        0,
+        0
+      ],
+      "can_errors": [
+        0,
+        0
+      ],
+      "loop_gap_ms": [
+        2,
+        2
+      ]
+    }
+  },
+  {
+    "source": "debug_logs/arm_step_20260909_220547",
+    "amplitude": 120.0,
+    "result": "complete",
+    "frequency_start": 0.5,
+    "frequency_end": 10.0,
+    "duration": 30.0,
+    "current_command_peak": 11.0,
+    "saturation_percent": 4.536357571714476,
+    "raw_velocity_peak": 166.41859436035156,
+    "initial": {
+      "1": 88.92626953125,
+      "2": 0.4017333984375
+    },
+    "final": {
+      "(1, 2)": {
+        "position": 0.42156982421875,
+        "velocity": -5.622724533081055,
+        "state": 0
+      },
+      "(1, 1)": {
+        "position": 91.03076171875,
+        "velocity": -0.0,
+        "state": 0
+      },
+      "(0, 4)": {
+        "position": 0.004364013671875,
+        "velocity": -0.0,
+        "state": 0
+      },
+      "(0, 1)": {
+        "position": 0.0,
+        "velocity": 0.0,
+        "state": 0
+      }
+    },
+    "rate_whole_chirp_windows": 29,
+    "rate_min_max": {
+      "target1": [
+        500,
+        500
+      ],
+      "type2_1": [
+        500,
+        500
+      ],
+      "ring_overrun": [
+        0,
+        0
+      ],
+      "priority_full": [
+        0,
+        0
+      ],
+      "tx_errors": [
+        0,
+        0
+      ],
+      "can_errors": [
+        0,
+        0
+      ],
+      "loop_gap_ms": [
+        2,
+        2
+      ]
+    }
+  },
+  {
+    "source": "debug_logs/arm_step_20260909_220715",
+    "amplitude": 400.0,
+    "result": "complete",
+    "frequency_start": 2.0,
+    "frequency_end": 10.0,
+    "duration": 30.0,
+    "current_command_peak": 11.0,
+    "saturation_percent": 62.53333333333333,
+    "raw_velocity_peak": 341.8862609863281,
+    "initial": {
+      "1": 91.03076171875,
+      "2": 0.42156982421875
+    },
+    "final": {
+      "(1, 2)": {
+        "position": 0.430084228515625,
+        "velocity": -0.6120884418487549,
+        "state": 0
+      },
+      "(1, 1)": {
+        "position": 71.794921875,
+        "velocity": -0.0,
+        "state": 0
+      },
+      "(0, 4)": {
+        "position": 0.004364013671875,
+        "velocity": -0.0,
+        "state": 0
+      },
+      "(0, 1)": {
+        "position": 0.0,
+        "velocity": 0.0,
+        "state": 0
+      }
+    },
+    "rate_whole_chirp_windows": 29,
+    "rate_min_max": {
+      "target1": [
+        500,
+        500
+      ],
+      "type2_1": [
+        500,
+        500
+      ],
+      "ring_overrun": [
+        0,
+        0
+      ],
+      "priority_full": [
+        0,
+        0
+      ],
+      "tx_errors": [
+        0,
+        0
+      ],
+      "can_errors": [
+        0,
+        0
+      ],
+      "loop_gap_ms": [
+        2,
+        2
+      ]
+    }
+  }
+]

@@ -1,0 +1,16 @@
+{
+  "action": "move",
+  "amplitude": 1.0,
+  "duration": 60.0,
+  "f0": 0.2,
+  "f1": 10.0,
+  "alpha": 10.0,
+  "kp": 0.5,
+  "current_limit": 4.0,
+  "position": 250.0,
+  "f0_hz": 0.2,
+  "f1_hz": 10.0,
+  "command_hz": 100,
+  "control_nominal_hz": 500,
+  "result": "RuntimeError('unexpected initial position')"
+}

@@ -1,0 +1,11 @@
+stdin is not a terminal device. Keyboard handling disabled.[INFO] [1788798730.281510519] [rosbag2_recorder]: Press SPACE for pausing/resuming
+[INFO] [1788798730.283740261] [rosbag2_storage]: Opened database 'debug_logs/robomas_scurve_100_to_200_repeat_20260908_0133/robomas_scurve_100_to_200_repeat_20260908_0133_0.db3' for READ_WRITE.
+[INFO] [1788798730.284771415] [rosbag2_recorder]: Listening for topics...
+[INFO] [1788798730.284815147] [rosbag2_recorder]: Event publisher thread: Starting
+[INFO] [1788798730.284946755] [rosbag2_recorder]: Recording...
+[INFO] [1788798731.393370048] [rosbag2_recorder]: Subscribed to topic '/uros_f7_feedback'
+[INFO] [1788798731.497305577] [rosbag2_recorder]: Subscribed to topic '/uros_f7_command'
+[INFO] [1788798731.497406418] [rosbag2_recorder]: All requested topics are subscribed. Stopping discovery...
+[INFO] [1788798744.829772494] [rosbag2_cpp]: Writing remaining messages from cache to the bag. It may take a while
+[INFO] [1788798744.830458557] [rosbag2_recorder]: Event publisher thread: Exiting
+[INFO] [1788798744.830544329] [rosbag2_recorder]: Recording stopped

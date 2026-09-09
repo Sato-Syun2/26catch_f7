@@ -1,0 +1,32 @@
+{
+  "position_min": 250.18353271484375,
+  "position_max": 367.62518310546875,
+  "peak_current_A": 7.632999897003174,
+  "peak_velocity_mm_s": 691.2125244140625,
+  "current_near_limit_fraction": 0.0,
+  "velocity_rmse_mm_s": 47.66567875630508,
+  "reference_rms_mm_s": 342.17731694218423,
+  "feedback_hz": 100.11442054694317,
+  "maximum_feedback_gap_s": 0.014976170961745083,
+  "frequency_bands": [
+    {
+      "frequency_hz": [
+        2,
+        5
+      ],
+      "rmse_mm_s": 34.776590972866074,
+      "measured_rms_mm_s": 403.191535695866,
+      "reference_rms_mm_s": 402.2324934015525
+    },
+    {
+      "frequency_hz": [
+        5,
+        10
+      ],
+      "rmse_mm_s": 60.63630813231237,
+      "measured_rms_mm_s": 221.1202240925873,
+      "reference_rms_mm_s": 240.80128908777033
+    }
+  ],
+  "note": "Reference 20.0/(s+20.0); host feedback receive timestamps; target is most recently published command, not acknowledged application time. No fitted time shift. Near-limit current is >=95% of configured limit, not the internal controller saturation flag."
+}

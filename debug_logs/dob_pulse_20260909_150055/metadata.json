@@ -1,0 +1,8 @@
+{
+  "amplitude": 400.0,
+  "width": 0.12,
+  "current_limit": 10.0,
+  "alpha": 20.0,
+  "current_limit_A": 10.0,
+  "result": "complete"
+}
