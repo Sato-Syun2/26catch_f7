@@ -11,6 +11,13 @@
 #include "CAN_RoboMas_Def.h"
 #include "CAN_RoboMas_System.h"
 
+static volatile uint32_t id4_last_rx_tick = 0U;
+static volatile bool id4_rx_seen = false;
+bool RoboMas_Id4FeedbackFresh(void)
+{
+    return id4_rx_seen && (uint32_t)(HAL_GetTick() - id4_last_rx_tick) <= 10U;
+}
+
 
 /*
  * The transmit ring is shared by the Robomas task and CAN TX callbacks.
@@ -144,6 +151,10 @@ void RoboMas_WhenTxMailboxAbortCallbackCalled(CAN_HandleTypeDef *phcan) {
 
 void _set_fb_data_raw(const uint8_t rxData[], uint8_t device_id) {
     if (device_id > 9 || device_id <= 0)return;
+    if (device_id == 4U) {
+        id4_last_rx_tick = HAL_GetTick();
+        id4_rx_seen = true;
+    }
     robomas_feedback_data_raw* fb_data_row = &_robomas_feedback_data_raw_global[device_id];
 
     fb_data_row->_get_counter += 1;

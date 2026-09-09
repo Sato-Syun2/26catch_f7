@@ -12,6 +12,10 @@
 // Typedefs --------------------------------
 typedef void (*DelayFunction_t)(uint32_t);
 
+/* ID4停止後のみ、蓄積済み診断を一行ずつ出力する。 */
+void RoboMas_PrintId4Diagnostic(void);
+void RoboMas_RequestId4VelocityBrake(void);
+
 // Function Prototypes --------------------------------
 void RoboMas_Init(RoboMas_DeviceInfo dev_info_array[], uint8_t size); // RoboMas_Init(dev[], 2)的なのを想定してる.
 

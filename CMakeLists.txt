@@ -68,6 +68,11 @@ function(add_canlib target_name source_dir)
 endfunction()
 
 add_canlib(canlib_robomaster canlib_robomaster)
+# MPCはDebugでも実時間計算を行う。sqrtfはM7単精度命令を使用可能にする。
+set_source_files_properties(
+    canlib_robomaster/CAN_RoboMas/Control/PositionMpc.c
+    PROPERTIES COMPILE_OPTIONS "-O3;-fno-math-errno"
+)
 add_canlib(canlib_robstride canlib_robstride)
 # Robstride の制限値設定で fminf/fmaxf を使用する。
 # 静的ライブラリの後にリンクされるよう依存先として宣言する。

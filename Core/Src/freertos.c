@@ -270,7 +270,9 @@ static void start_robomas_calibration_if_ready(
 #endif
 
 #if ROBOMAS_C610_COUNT > 1U
-  if (!calibration_started[1] && robomas_fb[1].get_flag != 0U) {
+  /* ID4単独試験中はID1を起動時にも動かさない。ゲイン設定は維持する。 */
+  const bool id4_only_test = true;
+  if (!id4_only_test && !calibration_started[1] && robomas_fb[1].get_flag != 0U) {
     printf("[RoboMas] ID %u feedback ready; calibration start\r\n",
            (unsigned int)robomas_dev_info_global[1].device_id);
     RoboMas_Calibration(&robomas_dev_info_global[1],
@@ -421,4 +423,3 @@ void StartRobomasTask(void const * argument)
 /* USER CODE BEGIN Application */
 /* micro-ROS の topic 処理は Core/Src/microros_app.c に分離している。 */
 /* USER CODE END Application */
-

@@ -62,7 +62,8 @@
 #define MICROROS_MODE_CURRENT         2U
 #define MICROROS_MODE_POSITION_AW     3U
 #define MICROROS_MODE_VELOCITY_DOB    4U
-#define MICROROS_MODE_MAX             MICROROS_MODE_VELOCITY_DOB
+#define MICROROS_MODE_POSITION_MPC    5U
+#define MICROROS_MODE_MAX             MICROROS_MODE_POSITION_MPC
 
 typedef enum {
   MICROROS_SERVICE_ACTION_MODE = 0,
@@ -97,6 +98,8 @@ static const microros_service_command_definition_t
        MICROROS_MODE_VELOCITY_DOB, false},
       {"vel_dob", MICROROS_SERVICE_ACTION_MODE,
        MICROROS_MODE_VELOCITY_DOB, false},
+      {"position_mpc", MICROROS_SERVICE_ACTION_MODE,
+       MICROROS_MODE_POSITION_MPC, false},
       {"enable", MICROROS_SERVICE_ACTION_ENABLE, 0U, false},
       {"disable", MICROROS_SERVICE_ACTION_DISABLE, 0U, false}
     };
@@ -505,6 +508,9 @@ static bool map_robomas_mode(uint8_t mode, ROBOMAS_CTRL_TYPE *ctrl_type)
     case MICROROS_MODE_POSITION_AW:
       *ctrl_type = ROBOMAS_CTRL_POS_AW;
       return true;
+    case MICROROS_MODE_POSITION_MPC:
+      *ctrl_type = ROBOMAS_CTRL_POS_MPC;
+      return true;
     case MICROROS_MODE_VELOCITY_DOB:
       *ctrl_type = ROBOMAS_CTRL_VEL_DOB;
       return true;
@@ -579,6 +585,8 @@ static bool set_robstride_mode(Robstride_DeviceInfo *device, uint8_t mode)
 
 static bool set_robomas_mode(RoboMas_DeviceInfo *device, uint8_t mode)
 {
+  /* 現段階では機構・モデルを確認したID4のみ。 */
+  if (mode == MICROROS_MODE_POSITION_MPC && device->device_id != 4U) return false;
   ROBOMAS_CTRL_TYPE ctrl_type;
   if (!map_robomas_mode(mode, &ctrl_type)) {
     return false;
@@ -629,7 +637,7 @@ static void parameter_service_callback(const void *request_msg,
     return;
   }
   if (command_result == MICROROS_SERVICE_COMMAND_INVALID_MODE) {
-    set_parameter_response(response, false, "mode data must be integer 0..4");
+    set_parameter_response(response, false, "mode data must be integer 0..5");
     return;
   }
 
@@ -697,6 +705,9 @@ static void parameter_service_callback(const void *request_msg,
     RoboMas_DeviceInfo *device = &robomas_dev_info_global[device_index];
     if (enabling) {
       RoboMas_ControlEnable(device);
+      if (!device->ctrl_param._enable_flag) {
+        operation_error = "enable blocked by safety guard";
+      }
     } else {
       RoboMas_ControlDisable(device);
     }
@@ -870,6 +881,7 @@ static float robomas_command_target_value(
   switch (device->ctrl_param.ctrl_type) {
     case ROBOMAS_CTRL_POS:
     case ROBOMAS_CTRL_POS_AW:
+    case ROBOMAS_CTRL_POS_MPC:
       return command->position;
     case ROBOMAS_CTRL_VEL:
     case ROBOMAS_CTRL_VEL_DOB:
@@ -1126,9 +1138,15 @@ void MicroRos_CheckRobomasCommandTimeout(void)
         !device->ctrl_param._is_calibrating &&
         robomas_timeout_mode(device->ctrl_param.ctrl_type) &&
         command_watchdog_expired(&robomas_command_last_tick[i], now)) {
-      printf("[micro-ROS] RoboMaster ID %u command timeout; disabled\r\n",
-             (unsigned int)device->device_id);
-      RoboMas_ControlDisable(device);
+      if (device->device_id == 4U &&
+          device->ctrl_param.ctrl_type == ROBOMAS_CTRL_VEL_DOB) {
+        /* 新しい指令が来ても減速ラッチは停止完了まで解除しない。 */
+        RoboMas_RequestId4VelocityBrake();
+      } else {
+        printf("[micro-ROS] RoboMaster ID %u command timeout; disabled\r\n",
+               (unsigned int)device->device_id);
+        RoboMas_ControlDisable(device);
+      }
     }
 
     end_control_transaction();
@@ -1258,6 +1276,7 @@ static void set_robomas_feedback(
     switch (device->ctrl_param.ctrl_type) {
       case ROBOMAS_CTRL_POS:
       case ROBOMAS_CTRL_POS_AW:
+      case ROBOMAS_CTRL_POS_MPC:
         output->state =
             catch26_interface__msg__UrosF7MotorUnitFeedback__STATE_POSITION;
         break;
@@ -1285,6 +1304,8 @@ static void feedback_timer_callback(rcl_timer_t *timer, int64_t last_call_time)
 {
   (void)timer;
   (void)last_call_time;
+
+  RoboMas_PrintId4Diagnostic();
 
   size_t feedback_count = 0U;
   bool all_connected = true;

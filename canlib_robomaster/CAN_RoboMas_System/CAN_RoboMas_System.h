@@ -26,6 +26,7 @@ HAL_StatusTypeDef RoboMas_SendBytes(CAN_HandleTypeDef *phcan, uint32_t StdId, ui
 void Init_RoboMas_CAN_System(CAN_HandleTypeDef *phcan);
 
 RoboMas_FeedbackData Get_RoboMas_FeedbackData(RoboMas_DeviceInfo *device_info);
+bool RoboMas_Id4FeedbackFresh(void);
 
 void _change_internal_offset_for_calib(RoboMas_DeviceInfo *device_info);  // don't use.
 
