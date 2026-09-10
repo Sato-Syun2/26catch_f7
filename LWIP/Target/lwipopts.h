@@ -114,6 +114,19 @@
 /*-----------------------------------------------------------------------------*/
 /* USER CODE BEGIN 1 */
 
+/* CubeMX既定の固定アドレスは通常BSSと重複するため使用しない。
+ * リンカで通常RAM/スタックから分離して予約した領域を使用する。 */
+extern unsigned char __lwip_heap_start__;
+#undef LWIP_RAM_HEAP_POINTER
+#define LWIP_RAM_HEAP_POINTER ((void *)&__lwip_heap_start__)
+/* メタデータ込みでもリンカ予約8KiBを超えないよう上限を固定する。 */
+#ifndef MEM_SIZE
+#define MEM_SIZE 1600
+#endif
+#if MEM_SIZE > 8000
+#error "MEM_SIZE exceeds reserved LWIP_HEAP region"
+#endif
+
 /* USER CODE END 1 */
 
 #ifdef __cplusplus

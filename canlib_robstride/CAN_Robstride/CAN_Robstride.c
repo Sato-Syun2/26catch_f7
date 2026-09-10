@@ -9,6 +9,7 @@
 #include <Robstride_Control.h>
 #include "arm_test_config.h"
 #include "Control/ArmVelocityEstimate.h"
+#include "Control/ArmPositionMpc.h"
 
 #include <stdbool.h>
 #include <math.h>  // 数学関数 (fabsf, fmaxf, fminf など) を使用するためにインクルード
@@ -17,10 +18,14 @@
 #define ROBSTRIDE_SERVICE_TIMEOUT_MS       (300U)
 #define ROBSTRIDE_SERVICE_RESPONSE_WINDOW_MS (10U)
 #define ROBSTRIDE_PARAMETER_TOLERANCE     (0.0005f)
+#define ROBSTRIDE_POSITION_TURN_RAD       (6.28318530717958647692f)
+#define ROBSTRIDE_POSITION_HALF_TURN_RAD  (3.14159265358979323846f)
+#define ROBSTRIDE_POSITION_STEP_TOLERANCE_RAD (0.02f)
 
 static bool arm_guard_tripped[3];
 static bool arm_current_config_ok[3];
 static ArmVelocityEstimate arm_velocity_estimate[3];
+static ArmPositionMpc arm_position_mpc[3];
 /* 同定用RAM記録。CAN追加読み出しなし、各軸50Hz、単軸約82秒。 */
 typedef struct {
     uint32_t tick, id;
@@ -28,6 +33,24 @@ typedef struct {
 } ArmDobSample;
 volatile struct { uint32_t count; ArmDobSample samples[4096]; } arm_dob_log;
 static uint32_t arm_dob_log_tick[3];
+/* 肘の高周期診断。CAN追加読み取りなし。最後の4.096秒を保持。 */
+typedef struct {
+    uint32_t tick, feedback_tick;
+    float position, raw_velocity, filtered_velocity, command_current, reference_current, target;
+} ArmFastSample;
+volatile struct { uint32_t count; ArmFastSample samples[2048]; } arm_fast_log;
+static bool arm_fast_capture_started;
+/* 起動後の非動作試験で全リングを連続書き込み。最初のDOB開始後は停止する。
+ * 実測区間ではこの疑似データは使わず、停止後の実測リングを保存する。 */
+void Robstride_FastLogIdleProbe(void)
+{
+    if (arm_fast_capture_started) return;
+    const uint32_t count=arm_fast_log.count;
+    const uint32_t now=HAL_GetTick();
+    arm_fast_log.samples[count%2048U]=(ArmFastSample){.tick=now,.feedback_tick=now,.target=NAN};
+    __DMB();
+    arm_fast_log.count=count+1U;
+}
 bool Robstride_ArmGuardCheck(Robstride_DeviceInfo *device)
 {
     if (!device) return false;
@@ -63,14 +86,19 @@ static bool robstride_wait_for_parameter(Robstride_DeviceInfo *dev_info,
                                          uint32_t sequence_before,
                                          uint32_t start_tick,
                                          DelayFunction_t f_delay);
+static bool robstride_position_target_to_wire(
+    const Robstride_DeviceInfo *device_info,
+    float target_value,
+    float *wire_value);
+static bool robstride_feedback_position_out_of_range(
+    const Robstride_DeviceInfo *device_info);
+static void robstride_trip_position_guard(Robstride_DeviceInfo *device_info);
 static bool robstride_target_parameter(const Robstride_DeviceInfo *device_info,
                                        float target_value,
                                        uint16_t *address,
                                        float *wire_value);
 static float robstride_clamp_current(const Robstride_DeviceInfo *device_info,
                                      float current);
-static float robstride_clamp_position_wire(const Robstride_DeviceInfo *device_info,
-                                           float position);
 static bool robstride_write_int_verified(Robstride_DeviceInfo *device_info,
                                          uint16_t address,
                                          int value,
@@ -81,9 +109,15 @@ static bool robstride_set_target_verified(Robstride_DeviceInfo *device_info,
                                           DelayFunction_t f_delay);
 static HAL_StatusTypeDef robstride_send_current(Robstride_DeviceInfo *device_info,
                                                 float current);
+static HAL_StatusTypeDef robstride_set_target_internal(
+    Robstride_DeviceInfo *device_info,
+    float target_value,
+    bool priority,
+    bool generation_guarded,
+    uint32_t expected_generation);
 static bool robstride_control_command_verified(Robstride_DeviceInfo *device_info,
-                                                uint8_t command_id,
-                                                uint8_t expected_state,
+                                               uint8_t command_id,
+                                               uint8_t expected_state,
                                                 DelayFunction_t f_delay);
 static uint8_t robstride_wire_control_type(ROBSTRIDE_CTRL_TYPE ctrl_type);
 
@@ -117,6 +151,10 @@ static void Robstride_Ctrl_Struct_init(Robstride_Ctrl_StructTypedef *const ctrl_
     ctrl_struct->_mode_configured = 0U;
     ctrl_struct->_target_value = 0.0f;            // 目標値の初期値
     ctrl_struct->_enable_flag = 0;                // 有効フラグの初期値 (無効)
+    ctrl_struct->_position_guard_latched = 0U;
+    ctrl_struct->_target_generation = 0U;
+    ctrl_struct->_position_target_wire = 0.0f;
+    ctrl_struct->_position_target_valid = 0U;
     Robstride_PID_Ctrl_init(&(ctrl_struct->pid)); // PIDパラメータ構造体を初期化
 }
 
@@ -135,7 +173,7 @@ void Robstride_Init(Robstride_DeviceInfo dev_info_array[], const uint8_t size) {
 static uint8_t robstride_wire_control_type(const ROBSTRIDE_CTRL_TYPE ctrl_type)
 {
     /* VEL_DOBはF7側制御なので、モータ内部は電流モードで動かす。 */
-    return ctrl_type == ROBSTRIDE_CTRL_VEL_DOB
+    return (ctrl_type == ROBSTRIDE_CTRL_VEL_DOB || ctrl_type == ROBSTRIDE_CTRL_POS_MPC)
                ? (uint8_t)ROBSTRIDE_CTRL_CURRENT
                : (uint8_t)ctrl_type;
 }
@@ -177,6 +215,160 @@ static bool robstride_wait_for_parameter(Robstride_DeviceInfo *const dev_info,
     return Robstride_GetParameterSequence(dev_info, address) != sequence_before;
 }
 
+/*
+ * 位置指令をモータ座標へ変換する。
+ *
+ * Robstrideの位置パラメータは有限範囲なので、ROS側の値を無条件に
+ * modulo変換すると、境界で別周回へ飛ぶ。まず入力が表現可能か確認し、
+ * フィードバックが既に周回を跨いでいる場合だけ同値な候補を選ぶ。
+ * 候補がモータの位置範囲に戻せない場合は、危険な指令として拒否する。
+ */
+static bool robstride_position_target_to_wire(
+    const Robstride_DeviceInfo *const device_info,
+    const float target_value,
+    float *const wire_value)
+{
+    float min_position;
+    float max_position;
+    if (!Robstride_GetPositionLimits(device_info->device,
+                                     &min_position,
+                                     &max_position) ||
+        !isfinite(target_value) ||
+        !isfinite(device_info->ctrl_param.offset_pos) ||
+        !isfinite(device_info->ctrl_param.quant_per_rot) ||
+        device_info->ctrl_param.quant_per_rot <= 0.0f) {
+        return false;
+    }
+
+    float target_position = target_value - device_info->ctrl_param.offset_pos;
+    target_position /= device_info->ctrl_param.quant_per_rot;
+    if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) {
+        target_position *= -1.0f;
+    }
+
+    if (!isfinite(target_position)) {
+        return false;
+    }
+
+    const Robstride_FeedbackData feedback =
+        Read_Robstride_FeedbackData((Robstride_DeviceInfo *)device_info);
+    if ((feedback.get_flag != 0U) && isfinite(feedback.position)) {
+        float current_position = feedback.position -
+                                 device_info->ctrl_param.offset_pos;
+        current_position /= device_info->ctrl_param.quant_per_rot;
+        if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) {
+            current_position *= -1.0f;
+        }
+
+        if (!isfinite(current_position) ||
+            !isfinite(ROBSTRIDE_POSITION_TURN_RAD) ||
+            ROBSTRIDE_POSITION_TURN_RAD <= 0.0f) {
+            return false;
+        }
+
+        const float reference_position =
+            (device_info->ctrl_param._position_target_valid != 0U)
+                ? device_info->ctrl_param._position_target_wire
+                : current_position;
+        if (!isfinite(reference_position)) {
+            return false;
+        }
+
+        /*
+         * ROSの角度は出力軸の度数法であり、1回転した角度は同じ姿勢を
+         * 表す。通信値の±4π幅を周期にすると、±180°付近の指令変化を
+         * 数百度の逆回転として解釈するため、ここでは1回転周期で
+         * 現在位置に最も近い同値目標を選ぶ。
+        */
+        const float turn_offset =
+            roundf((reference_position - target_position) /
+                   ROBSTRIDE_POSITION_TURN_RAD);
+        const float candidate = target_position +
+                                turn_offset * ROBSTRIDE_POSITION_TURN_RAD;
+        const float target_step = fabsf(candidate - reference_position);
+        const float feedback_step = fabsf(candidate - current_position);
+        if (!isfinite(candidate) ||
+            !isfinite(target_step) ||
+            !isfinite(feedback_step) ||
+            target_step > (ROBSTRIDE_POSITION_HALF_TURN_RAD +
+                           ROBSTRIDE_POSITION_STEP_TOLERANCE_RAD) ||
+            feedback_step > (ROBSTRIDE_POSITION_HALF_TURN_RAD +
+                             ROBSTRIDE_POSITION_STEP_TOLERANCE_RAD) ||
+            candidate < min_position ||
+            candidate > max_position) {
+            return false;
+        }
+        target_position = candidate;
+    } else if (target_position < min_position ||
+               target_position > max_position) {
+        /* フィードバックなしで別周回を選ぶ根拠がないため拒否する。 */
+        return false;
+    }
+
+    *wire_value = target_position;
+    return true;
+}
+
+static bool robstride_feedback_position_out_of_range(
+    const Robstride_DeviceInfo *const device_info)
+{
+    float min_position;
+    float max_position;
+    if (!Robstride_GetPositionLimits(device_info->device,
+                                     &min_position,
+                                     &max_position) ||
+        !isfinite(device_info->ctrl_param.offset_pos) ||
+        !isfinite(device_info->ctrl_param.quant_per_rot) ||
+        device_info->ctrl_param.quant_per_rot <= 0.0f) {
+        return false;
+    }
+
+    const Robstride_FeedbackData feedback =
+        Read_Robstride_FeedbackData((Robstride_DeviceInfo *)device_info);
+    if ((feedback.get_flag == 0U) || !isfinite(feedback.position)) {
+        return false;
+    }
+
+    float position = feedback.position - device_info->ctrl_param.offset_pos;
+    position /= device_info->ctrl_param.quant_per_rot;
+    if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) {
+        position *= -1.0f;
+    }
+    return !isfinite(position) ||
+           position < min_position ||
+           position > max_position;
+}
+
+/* 位置指令を安全に表現できない場合は、次の目標値を送らず即時にRESETする。 */
+static void robstride_trip_position_guard(
+    Robstride_DeviceInfo *const device_info)
+{
+    if ((device_info->ctrl_param.ctrl_type != ROBSTRIDE_CTRL_POS) ||
+        (device_info->ctrl_param._position_guard_latched != 0U)) {
+        return;
+    }
+
+    const uint8_t data[8] = {0U};
+    /*
+     * 既に通常キューやCANメールボックスへ入った位置指令を残したまま
+     * RESETを送ると、RESET後に古い指令が出て再び回転する可能性がある。
+     * 通常送信を停止し、メールボックスも中断してからRESETを送る。
+     */
+    Robstride_BeginPriorityTransaction(device_info->phcan);
+    Robstride_ClearPriorityTxQueue(device_info->phcan);
+    (void)Robstride_SendPriorityBytes(device_info->phcan,
+                                      device_info->device_id,
+                                      CMD_RESET,
+                                      device_info->master_id,
+                                      data,
+                                      sizeof(data));
+    Robstride_EndPriorityTransaction(device_info->phcan);
+    device_info->ctrl_param._position_guard_latched = 1U;
+    device_info->ctrl_param._enable_flag = 0U;
+    device_info->ctrl_param._position_target_valid = 0U;
+    Robstride_InvalidateTargetGeneration(device_info);
+}
+
 static bool robstride_target_parameter(const Robstride_DeviceInfo *const device_info,
                                        const float target_value,
                                        uint16_t *const address,
@@ -196,13 +388,16 @@ static bool robstride_target_parameter(const Robstride_DeviceInfo *const device_
                 arm_guard_tripped[device_info->device_id] = true;
                 return false;
             }
-            value -= device_info->ctrl_param.offset_pos;
             *address = (uint16_t)ADDR_LOC_REF;
-            value /= device_info->ctrl_param.quant_per_rot;
-            if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) {
-                value *= -1.0f;
+            if (robstride_feedback_position_out_of_range(device_info)) {
+                return false;
             }
-            value = robstride_clamp_position_wire(device_info, value);
+            if (!robstride_position_target_to_wire(device_info,
+                                                   target_value,
+                                                   wire_value)) {
+                return false;
+            }
+            value = *wire_value;
             break;
         case ROBSTRIDE_CTRL_VEL:
             *address = (uint16_t)ADDR_SPEED_REF;
@@ -239,37 +434,6 @@ static float robstride_clamp_current(const Robstride_DeviceInfo *const device_in
     }
 
     return fmaxf(-limit, fminf(current, limit));
-}
-
-static float robstride_clamp_position_wire(
-    const Robstride_DeviceInfo *const device_info,
-    const float position)
-{
-    float minimum;
-    float maximum;
-
-    if (device_info == NULL || !isfinite(position)) {
-        return 0.0f;
-    }
-
-    switch (device_info->device) {
-        case Robstride_02:
-            minimum = P_MIN_ROBSTRIDE02;
-            maximum = P_MAX_ROBSTRIDE02;
-            break;
-        case Robstride_04:
-            minimum = P_MIN_ROBSTRIDE04;
-            maximum = P_MAX_ROBSTRIDE04;
-            break;
-        case Robstride_05_Edu:
-            minimum = P_MIN_ROBSTRIDE05;
-            maximum = P_MAX_ROBSTRIDE05;
-            break;
-        default:
-            return position;
-    }
-
-    return fmaxf(minimum, fminf(position, maximum));
 }
 
 static float robstride_cached_parameter(const Robstride_FeedbackData *const feedback,
@@ -625,6 +789,7 @@ static void Robstride_SetMechposToZero(Robstride_DeviceInfo *const dev_info, Del
         f_delay(1); // 送信後に少し待機
         // フィードバックデータを読み取る (機械的位置がゼロに設定されたか確認)
         if (fabs(Read_Robstride_FeedbackData(dev_info).position - dev_info->ctrl_param.offset_pos) < 0.1f) {
+            Robstride_ResetPositionTracking(dev_info);
             break; // 機械的位置がゼロに設定されたらループを抜ける
         }
     }
@@ -948,11 +1113,33 @@ void Robstride_ChangeControl(Robstride_DeviceInfo *const dev_info, const ROBSTRI
 static HAL_StatusTypeDef robstride_set_target_internal(
     Robstride_DeviceInfo *const device_info,
     const float target_value,
-    const bool priority)
+    const bool priority,
+    const bool generation_guarded,
+    const uint32_t expected_generation)
 {
     uint16_t address;
     float wire_value;
 
+    if (device_info == NULL || !isfinite(target_value)) return HAL_ERROR;
+    if (generation_guarded &&
+        (!device_info->ctrl_param._enable_flag ||
+         Read_Robstride_FeedbackData(device_info).mode_status != ROBSTRIDE_STATE_ENABLE))
+        return HAL_BUSY;
+    /* MPC/DOBにもサービス世代・優先トランザクションのゲートを適用する。
+     * 最適化計算中は割り込みを止めず、送信直前に再照合する。 */
+    if ((generation_guarded &&
+         device_info->ctrl_param._target_generation != expected_generation) ||
+        (!priority && Robstride_IsPriorityTransactionActive(device_info->phcan)))
+        return HAL_BUSY;
+
+    if (device_info && device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS_MPC &&
+        (!ArmPositionMpc_TargetAllowed(target_value) || device_info->device_id<1U || device_info->device_id>2U)) {
+        if(device_info->device_id>=1U && device_info->device_id<=2U) {
+            arm_guard_tripped[device_info->device_id]=true;
+            ArmPositionMpc_Reset(&arm_position_mpc[device_info->device_id]);
+        }
+        return robstride_send_current(device_info,0.0f);
+    }
     if (device_info == NULL || !isfinite(target_value)) {
         return HAL_ERROR;
     }
@@ -961,8 +1148,11 @@ static HAL_StatusTypeDef robstride_set_target_internal(
     device_info->ctrl_param._target_value = target_value;
 
     /* VEL_DOBの速度目標はF7に保持し、速度レジスタへは送らない。 */
-    if (device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_VEL_DOB) {
+    if (device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_VEL_DOB ||
+        device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS_MPC) {
         if (device_info->ctrl_param._enable_flag == 0U) {
+            if(device_info->device_id>=1U && device_info->device_id<=2U)
+                ArmPositionMpc_Reset(&arm_position_mpc[device_info->device_id]);
             device_info->ctrl_param._req_value = 0.0f;
             Robstride_Actuator_VelocityDob_Reset(
                 &(device_info->ctrl_param.velocity_dob_state));
@@ -984,24 +1174,57 @@ static HAL_StatusTypeDef robstride_set_target_internal(
             if (!Robstride_ReadStandardFeedback(device_info,&standard) ||
                 (uint32_t)(HAL_GetTick()-standard.tick)>50U || !isfinite(standard.velocity))
                 return robstride_send_current(device_info,0.0f);
-            /* 肘のみ10ms候補を比較。根本の40msは変更しない。 */
+            /* 指定により両軸40ms固定。根本はこのフィルタで調整する。 */
             velocity_for_dob=ArmVelocityEstimate_UpdateVelocityWithTau(
                 &arm_velocity_estimate[device_info->device_id],standard.velocity,standard.tick,
-                device_info->device_id==1U ? .01f : .04f);
+                .04f);
+        }
+        float velocity_reference=target_value;
+        if(device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS_MPC) {
+            Robstride_StandardFeedback standard;
+            if(!Robstride_ReadStandardFeedback(device_info,&standard) ||
+               HAL_GetTick()-standard.tick>50U || !ArmPositionMpc_TargetAllowed(standard.position))
+                return robstride_send_current(device_info,0.0f);
+            velocity_reference=ArmPositionMpc_Update(&arm_position_mpc[device_info->device_id],
+                standard.position,velocity_for_dob,target_value,
+                device_info->ctrl_param.velocity_dob.reference_alpha,
+                device_info->ctrl_param.velocity_dob.control_period);
         }
         const float current = Robstride_Actuator_VelocityDob_Update(
             &(device_info->ctrl_param.velocity_dob),
             &(device_info->ctrl_param.velocity_dob_state),
-            target_value,
+            velocity_reference,
             velocity_for_dob,
             device_info->ctrl_param.velocity_dob.control_period);
+        const uint32_t send_mask = __get_PRIMASK();
+        __disable_irq();
+        if ((generation_guarded && device_info->ctrl_param._target_generation != expected_generation) ||
+            !device_info->ctrl_param._enable_flag ||
+            Robstride_IsPriorityTransactionActive(device_info->phcan)) {
+            __set_PRIMASK(send_mask);
+            return HAL_BUSY;
+        }
         const HAL_StatusTypeDef sent = robstride_send_current(device_info, current);
+        __set_PRIMASK(send_mask);
         const uint8_t id = device_info->device_id;
         const uint32_t now = HAL_GetTick();
+        if (id==1U) {
+            arm_fast_capture_started=true;
+            Robstride_StandardFeedback standard;
+            if (Robstride_ReadStandardFeedback(device_info,&standard)) {
+                const ArmFastSample sample={now,standard.tick,standard.position,
+                    standard.velocity,velocity_for_dob,device_info->ctrl_param._req_value,
+                    Robstride_StandardReferenceCurrent(device_info,&standard),target_value};
+                const uint32_t count=arm_fast_log.count;
+                arm_fast_log.samples[count%2048U]=sample;
+                __DMB();
+                arm_fast_log.count=count+1U;
+            }
+        }
         if ((id==1U || id==2U) && (uint32_t)(now-arm_dob_log_tick[id])>=20U) {
             Robstride_StandardFeedback standard;
             if (Robstride_ReadStandardFeedback(device_info,&standard)) {
-                const ArmDobSample sample = {now,id,target_value,
+                const ArmDobSample sample = {now,id,velocity_reference,
                     device_info->ctrl_param.velocity_dob_state.omega_model /
                         device_info->ctrl_param.velocity_dob.velocity_unit_to_rad_s,
                     velocity_for_dob,device_info->ctrl_param._req_value,standard.position,
@@ -1018,38 +1241,101 @@ static HAL_StatusTypeDef robstride_set_target_internal(
                                     target_value,
                                     &address,
                                     &wire_value)) {
+        robstride_trip_position_guard(device_info);
         return HAL_ERROR;
     }
 
-    if (priority) {
-        return Robstride_WriteFloatDataPriority(device_info,
-                                                address,
-                                                wire_value);
+    /*
+     * Service/control traffic owns the CAN path.  A normal target that races
+     * with a service must never be released after the service has completed.
+     * The guarded path also checks the command generation immediately before
+     * queueing, so invalidation and queue insertion cannot be reordered.
+     */
+    const uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    const bool generation_matches =
+        !generation_guarded ||
+        (device_info->ctrl_param._target_generation == expected_generation);
+    const bool transaction_active =
+        (!priority && Robstride_IsPriorityTransactionActive(device_info->phcan));
+    if (!generation_matches || transaction_active) {
+        __set_PRIMASK(primask);
+        return HAL_BUSY;
     }
 
-    return Robstride_WriteFloatData(device_info, address, wire_value);
+    device_info->ctrl_param._target_value = target_value;
+
+    if (priority) {
+        const HAL_StatusTypeDef result = Robstride_WriteFloatDataPriority(
+            device_info, address, wire_value);
+        if ((result == HAL_OK) &&
+            (device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS)) {
+            device_info->ctrl_param._position_target_wire = wire_value;
+            device_info->ctrl_param._position_target_valid = 1U;
+        }
+        __set_PRIMASK(primask);
+        return result;
+    }
+
+    const HAL_StatusTypeDef sent = Robstride_WriteFloatData(device_info, address, wire_value);
+    if (sent == HAL_OK && device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS) {
+        device_info->ctrl_param._position_target_wire = wire_value;
+        device_info->ctrl_param._position_target_valid = 1U;
+    }
+    __set_PRIMASK(primask);
+    return sent;
 }
 
 HAL_StatusTypeDef Robstride_SetTarget(Robstride_DeviceInfo *const device_info,
                                       const float target_value) {
-    return robstride_set_target_internal(device_info, target_value, false);
+    return robstride_set_target_internal(device_info,
+                                         target_value,
+                                         false,
+                                         false,
+                                         0U);
 }
 
-static HAL_StatusTypeDef robstride_send_current(Robstride_DeviceInfo *const device_info,
-                                                const float current)
+HAL_StatusTypeDef Robstride_SetTargetIfGeneration(
+    Robstride_DeviceInfo *const device_info,
+    const float target_value,
+    const uint32_t expected_generation)
+{
+    return robstride_set_target_internal(device_info,
+                                         target_value,
+                                         false,
+                                         true,
+                                         expected_generation);
+}
+
+uint32_t Robstride_GetTargetGeneration(
+    const Robstride_DeviceInfo *const device_info)
 {
     if (device_info == NULL) {
-        return HAL_ERROR;
+        return 0U;
     }
 
-    const float limited_current = robstride_clamp_current(device_info, current);
+    const uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    const uint32_t generation = device_info->ctrl_param._target_generation;
+    __set_PRIMASK(primask);
+    return generation;
+}
 
-    device_info->ctrl_param._req_value = limited_current;
-    float wire_current = limited_current;
-    if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) {
-        wire_current *= -1.0f;
+void Robstride_InvalidateTargetGeneration(
+    Robstride_DeviceInfo *const device_info)
+{
+    if (device_info == NULL) {
+        return;
     }
-    return Robstride_WriteFloatData(device_info, ADDR_IQ_REF, wire_current);
+
+    const uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+    ++device_info->ctrl_param._target_generation;
+    if (device_info->ctrl_param._target_generation == 0U) {
+        /* 0は初期値として予約し、世代の一致判定を壊さない。 */
+        device_info->ctrl_param._target_generation = 1U;
+    }
+    __set_PRIMASK(primask);
 }
 
 static bool robstride_set_target_verified(Robstride_DeviceInfo *const device_info,
@@ -1066,7 +1352,8 @@ static bool robstride_set_target_verified(Robstride_DeviceInfo *const device_inf
     }
 
     /* VEL_DOBは速度目標をF7側で処理するため、切替時は電流指令を0にする。 */
-    if (device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_VEL_DOB) {
+    if (device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_VEL_DOB ||
+        device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS_MPC) {
         device_info->ctrl_param._target_value = target_value;
         device_info->ctrl_param._req_value = 0.0f;
         Robstride_Actuator_VelocityDob_Reset(
@@ -1080,10 +1367,9 @@ static bool robstride_set_target_verified(Robstride_DeviceInfo *const device_inf
                                     target_value,
                                     &address,
                                     &wire_value)) {
+        robstride_trip_position_guard(device_info);
         return false;
     }
-    device_info->ctrl_param._target_value = target_value;
-
     Robstride_BeginPriorityTransaction(device_info->phcan);
     while (!robstride_deadline_reached(transaction_start,
                                        ROBSTRIDE_SERVICE_TIMEOUT_MS)) {
@@ -1122,6 +1408,13 @@ static bool robstride_set_target_verified(Robstride_DeviceInfo *const device_inf
 
     Robstride_ClearPriorityTxQueue(device_info->phcan);
     Robstride_EndPriorityTransaction(device_info->phcan);
+    if (success) {
+        device_info->ctrl_param._target_value = target_value;
+        if (device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS) {
+            device_info->ctrl_param._position_target_wire = wire_value;
+            device_info->ctrl_param._position_target_valid = 1U;
+        }
+    }
     return success;
 }
 
@@ -1151,12 +1444,44 @@ uint8_t Robstride_ControlEnable(Robstride_DeviceInfo *const dev_info, DelayFunct
     }
     printf("[Robstride] ID %u Enable request\r\n",
            (unsigned int)dev_info->device_id);
+    /* 境界超過後は、古いloc_refを残したまま再Enableしない。 */
+    if ((dev_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS) &&
+        robstride_feedback_position_out_of_range(dev_info)) {
+        robstride_trip_position_guard(dev_info);
+        dev_info->ctrl_param._enable_flag = 0U;
+        return 0U;
+    }
+
+    /*
+     * Disable中もモータ側のloc_refは保持されるため、Enableを先に送ると
+     * 前回の目標へ一気に追従する。位置制御では現在位置を保持目標として
+     * 優先キューへ検証書込みし、成功してからEnableする。
+    */
+    if (dev_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS) {
+        /*
+         * Enable直前はモータ軸が手で動かされた可能性もあるため、
+         * 前回のloc_refを周回選択の基準にしない。最新フィードバックを
+         * 基準にして、現在位置をそのまま保持目標へ書き込む。
+         */
+        dev_info->ctrl_param._position_target_valid = 0U;
+        const Robstride_FeedbackData feedback =
+            Read_Robstride_FeedbackData(dev_info);
+        if ((feedback.get_flag == 0U) || !isfinite(feedback.position) ||
+            !robstride_set_target_verified(dev_info,
+                                           feedback.position,
+                                           f_delay)) {
+            dev_info->ctrl_param._enable_flag = 0U;
+            return 0U;
+        }
+    }
+
     const uint8_t success = robstride_control_command_verified(
         dev_info,
         CMD_ENABLE,
         ROBSTRIDE_STATE_ENABLE,
         f_delay);
     dev_info->ctrl_param._enable_flag = (success != 0U) ? 1U : 0U;
+    if (success != 0U) dev_info->ctrl_param._position_guard_latched = 0U;
     {
         const Robstride_FeedbackData feedback = Read_Robstride_FeedbackData(dev_info);
         printf("[Robstride] ID %u Enable result=%u sw=%u feedback=%u mode=%u run_mode=%u\r\n",
@@ -1176,10 +1501,15 @@ uint8_t Robstride_ControlEnable(Robstride_DeviceInfo *const dev_info, DelayFunct
  * @retval なし
  */
 uint8_t Robstride_ControlDisable(Robstride_DeviceInfo *const dev_info, DelayFunction_t f_delay) {
+    if(!dev_info || !f_delay) return 0U;
+    if (dev_info->device_id>=1U && dev_info->device_id<=2U)
+        ArmPositionMpc_Reset(&arm_position_mpc[dev_info->device_id]);
     if (dev_info->device_id == 1U || dev_info->device_id == 2U)
         arm_velocity_estimate[dev_info->device_id]=(ArmVelocityEstimate){0};
     dev_info->ctrl_param._req_value = 0.0f;
     Robstride_Actuator_VelocityDob_Reset(&(dev_info->ctrl_param.velocity_dob_state));
+    /* Disable時点より前に取得したROS指令を再Enable後へ持ち越さない。 */
+    Robstride_InvalidateTargetGeneration(dev_info);
     const uint8_t success = robstride_control_command_verified(
         dev_info,
         CMD_RESET,
@@ -1187,6 +1517,7 @@ uint8_t Robstride_ControlDisable(Robstride_DeviceInfo *const dev_info, DelayFunc
         f_delay);
     /* タイムアウト時も以後の目標値送信を止める。 */
     dev_info->ctrl_param._enable_flag = 0U;
+    dev_info->ctrl_param._position_target_valid = 0U;
     return success;
 }
 
@@ -1202,7 +1533,8 @@ uint8_t Robstride_ServiceChangeControl(Robstride_DeviceInfo *const dev_info,
 
     if (new_ctrl_type < ROBSTRIDE_CTRL_POS ||
         (new_ctrl_type > ROBSTRIDE_CTRL_CURRENT &&
-         new_ctrl_type != ROBSTRIDE_CTRL_VEL_DOB)) {
+         new_ctrl_type != ROBSTRIDE_CTRL_VEL_DOB &&
+         new_ctrl_type != ROBSTRIDE_CTRL_POS_MPC)) {
         return 0U;
     }
 
@@ -1228,7 +1560,7 @@ uint8_t Robstride_ServiceChangeControl(Robstride_DeviceInfo *const dev_info,
     }
 
     dev_info->ctrl_param.ctrl_type = new_ctrl_type;
-    const float safe_target = (new_ctrl_type == ROBSTRIDE_CTRL_POS)
+    const float safe_target = (new_ctrl_type == ROBSTRIDE_CTRL_POS || new_ctrl_type == ROBSTRIDE_CTRL_POS_MPC)
                                   ? hold_position
                                   : 0.0f;
 
@@ -1358,4 +1690,21 @@ void Robstride_Debug_Check_All_Parameters(Robstride_DeviceInfo *const device_inf
     f_delay(100); // 全てのパラメータが更新されるまで少し待機
     Robstride_FeedbackData data = Read_Robstride_FeedbackData(device_info);
     Robstride_PrintAllParameters(&data);
+}
+
+static HAL_StatusTypeDef robstride_send_current(Robstride_DeviceInfo *const device_info,
+                                                const float current)
+{
+    if (device_info == NULL) {
+        return HAL_ERROR;
+    }
+
+    const float limited_current = robstride_clamp_current(device_info, current);
+
+    device_info->ctrl_param._req_value = limited_current;
+    float wire_current = limited_current;
+    if (device_info->ctrl_param.rotation == ROBSTRIDE_ROT_CW) {
+        wire_current *= -1.0f;
+    }
+    return Robstride_WriteFloatData(device_info, ADDR_IQ_REF, wire_current);
 }

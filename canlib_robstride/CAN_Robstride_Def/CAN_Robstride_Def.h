@@ -16,7 +16,8 @@ typedef enum {
     ROBSTRIDE_CTRL_POS = 1,
     ROBSTRIDE_CTRL_VEL = 2,
     ROBSTRIDE_CTRL_CURRENT = 3,
-    ROBSTRIDE_CTRL_VEL_DOB = 4
+    ROBSTRIDE_CTRL_VEL_DOB = 4,
+    ROBSTRIDE_CTRL_POS_MPC = 5
 } ROBSTRIDE_CTRL_TYPE; // 制御タイプ
 
 typedef enum {
@@ -73,6 +74,12 @@ typedef struct {
     uint8_t _enable_flag;
     /* モーター側のrun_mode書き込みを読み返し確認できたか。 */
     uint8_t _mode_configured;
+    uint8_t _position_guard_latched;
+    /* Enable/Disableやモード変更で無効化されたROS指令の世代。 */
+    volatile uint32_t _target_generation;
+    /* 前回採用した位置目標。境界付近で候補の周回が反転しないように使う。 */
+    float _position_target_wire;
+    uint8_t _position_target_valid;
 } Robstride_Ctrl_StructTypedef;
 
 typedef enum {
@@ -135,6 +142,8 @@ typedef struct Robstride_FeedbackData {
 typedef struct robstride_feedback_data_raw {
     uint8_t _get_counter; // dataを受け取った回数 (offset計算用, max:128)
     int64_t _rot_num;     // 回転数
+    float _last_position_rad;
+    uint8_t _position_valid;
     uint16_t pos;
     uint16_t vel;
     uint16_t torque;

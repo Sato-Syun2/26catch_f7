@@ -180,6 +180,7 @@ int main(void)
    * Robstride_WaitForConnect() and the remaining setup to CanDevicesTask.
    * This lets micro-ROS start while the connection check is waiting.
    */
+  /* CAN2共用配線。今回はC620 ID3のみ登録し、他機器は制御しない。 */
   CanDevices_InitBeforeWait(&hcan2, &hcan3, HAL_Delay);
 
 

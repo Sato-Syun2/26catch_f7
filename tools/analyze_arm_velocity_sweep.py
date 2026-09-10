@@ -65,6 +65,7 @@ for center in np.geomspace(meta['frequency_hz']*1.15,meta['frequency_end_hz']*.9
         raw_velocity_amplitude=abs(rf['velocity']),raw_model_gain=abs(rf['velocity']/rf['model']),
         raw_input_gain=abs(rf['velocity']/rf['target']),
         raw_input_phase_deg=float(np.angle(rf['velocity']/rf['target'],deg=True)),
+        raw_velocity_residual_rms_deg_s=float(np.sqrt(np.mean((rv[mask]-RX@rb)**2))),
         filtered_model_gain=abs(fit['velocity']/fit['model']),
         position_peak_to_peak_deg=2*abs(fit['position']),position_residual_rms_deg=residual['position'],
         small_motion_below_5deg=2*abs(fit['position'])<5,

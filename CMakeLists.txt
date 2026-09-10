@@ -71,6 +71,8 @@ add_canlib(canlib_robomaster canlib_robomaster)
 # MPCはDebugでも実時間計算を行う。sqrtfはM7単精度命令を使用可能にする。
 set_source_files_properties(
     canlib_robomaster/CAN_RoboMas/Control/PositionMpc.c
+    canlib_robomaster/CAN_RoboMas/Control/C620PositionMpc.c
+    canlib_robstride/CAN_Robstride/Control/ArmPositionMpc.c
     PROPERTIES COMPILE_OPTIONS "-O3;-fno-math-errno"
 )
 add_canlib(canlib_robstride canlib_robstride)

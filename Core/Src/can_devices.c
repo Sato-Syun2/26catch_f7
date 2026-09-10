@@ -192,6 +192,7 @@ static void configure_c610_1(void)
 {
     RoboMas_Ctrl_StructTypedef *ctrl = &robomas_dev_info_global[0].ctrl_param;
     configure_robomas_common(&robomas_dev_info_global[0]);
+    ctrl->ctrl_type = ROBOMAS_CTRL_POS_MPC; /* 調整済みID4はMode5で起動。 */
 
     ctrl->rotation = ROBOMAS_ROT_CW;
     ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_CALIB;
@@ -203,9 +204,9 @@ static void configure_c610_1(void)
     ctrl->pid_vel.ki = 10.0f;
     ctrl->pid_vel.kd = 0.0f;
     ctrl->pid_vel.kff = 0.0f;
-    ctrl->pid_pos.kp = 3.0f;
-    ctrl->pid_pos.ki = 0.0f;
-    ctrl->pid_pos.kd = 0.0f;
+    ctrl->pid_pos.kp = 2.0f;
+    ctrl->pid_pos.ki = 0.01f;
+    ctrl->pid_pos.kd = 0.2f;
     ctrl->pid_pos.kff = 0.0f;
     configure_robomas_velocity_dob(&ctrl->velocity_dob,
                                    ctrl->velocity_limit_size,
@@ -230,7 +231,7 @@ static void configure_c610_2(void)
 
     ctrl->rotation = ROBOMAS_ROT_ACW;
     ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_CALIB;
-    ctrl->quant_per_rot = 28.0f * 3.14159265359f / 36.0f* 2.0f;
+    ctrl->quant_per_rot = 31.0f * 3.14159265359f / 36.0f * 2.0f;
     ctrl->current_limit_size = 2.0f;
     ctrl->velocity_limit_size = 10.0f;
     ctrl->pid_vel.kp = 2.0f;
@@ -258,26 +259,38 @@ static void configure_c620_1(void)
     RoboMas_Ctrl_StructTypedef *ctrl =
         &robomas_dev_info_global[ROBOMAS_C610_COUNT].ctrl_param;
     configure_robomas_common(&robomas_dev_info_global[ROBOMAS_C610_COUNT]);
+    ctrl->ctrl_type = ROBOMAS_CTRL_POS_MPC; /* 校正中のみ速度制御へ切り替える。 */
 
-    ctrl->rotation = ROBOMAS_ROT_ACW;
-    ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f;
-    ctrl->current_limit_size = 2.0f;
-    ctrl->velocity_limit_size = 10.0f;
-    ctrl->pid_vel.kp = 2.0f;
-    ctrl->pid_vel.ki = 4.0f;
+    /* ohmori/disturbance_dev 9067042 の実機設定。換算値は実測前に変更しない。 */
+    ctrl->rotation = ROBOMAS_ROT_CW;
+    ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_CALIB;
+    ctrl->quant_per_rot = 125.0f / 36.0f * 2.0f;
+    ctrl->current_limit_size = 20.0f;
+    ctrl->velocity_limit = ROBOMAS_LIMIT_ENABLE;
+    ctrl->velocity_limit_size = 200.0f;
+    ctrl->pid_vel.kp = 0.2f;
+    ctrl->pid_vel.ki = 0.4f;
     ctrl->pid_vel.kd = 0.0f;
     ctrl->pid_vel.kff = 0.0f;
-    ctrl->pid_pos.kp = 4.0f;
+    ctrl->pid_pos.kp = 2.0f;
     ctrl->pid_pos.ki = 0.0f;
     ctrl->pid_pos.kd = 0.0f;
     ctrl->pid_pos.kff = 0.0f;
     configure_robomas_velocity_dob(&ctrl->velocity_dob,
                                    ctrl->velocity_limit_size,
                                    ctrl->current_limit_size,
-                                   1.0f,
+                                   2.0f * 3.14159265359f / ctrl->quant_per_rot,
                                    ctrl->velocity_limit == ROBOMAS_LIMIT_ENABLE,
                                    ctrl->current_limit == ROBOMAS_LIMIT_ENABLE,
                                    false);
+    /* 2026-09-10: ±20mm/s、0.5〜4Hz/30秒のチャープで比較した暫定採用値。
+     * 理想速度モデル時定数33.333ms。方向差・摩擦の同定は継続。 */
+    ctrl->velocity_dob.velocity_kp = 0.10f;
+    ctrl->velocity_dob.velocity_ki = 0.0f; /* 最終Mode5実機試験の採用値。 */
+    ctrl->velocity_dob.dob_bandwidth = 5.0f;
+    ctrl->velocity_dob.reference_alpha = 30.0f; /* 時定数1/30秒 = 33.333ms */
+    ctrl->velocity_dob.velocity_limit = ctrl->velocity_limit_size *
+        ctrl->velocity_dob.velocity_unit_to_rad_s;
 }
 #endif
 
@@ -319,7 +332,7 @@ static void configure_robstride_common(Robstride_DeviceInfo *device)
     Robstride_Ctrl_StructTypedef *ctrl = &device->ctrl_param;
 
     ctrl->use_internal_offset = ROBSTRIDE_USE_OFFSET_POS_INTERNAL;
-    ctrl->ctrl_type = ROBSTRIDE_CTRL_POS;
+    ctrl->ctrl_type = ROBSTRIDE_CTRL_POS_MPC; /* 調整済み2台はMode5で起動。 */
     // ctrl->ctrl_type = ROBSTRIDE_CTRL_CURRENT;
     // ctrl->ctrl_type = ROBSTRIDE_CTRL_VEL_DOB;
     /* ROS指令が止まったときの自動Disableをモーターごとに切り替える。 */
@@ -351,17 +364,18 @@ static void configure_robstride_0(void)
 {
     Robstride_Ctrl_StructTypedef *ctrl = &robstride_dev_info_global[0].ctrl_param;
     configure_robstride_common(&robstride_dev_info_global[0]);
-    ctrl->velocity_dob.velocity_kp = 12.0f;
+    ctrl->velocity_dob.velocity_kp = 6.0f; /* 根本90度移動中の速度・電流振動低減を比較。 */
     ctrl->velocity_dob.velocity_ki = 12.0f; /* PI候補: P維持、Iの低周波追従効果を比較 */
+    ctrl->velocity_dob.reference_alpha = 10.0f; /* 根本40ms固定でtau=.1sを比較。 */
 
     /* ID2（根本）の初期アーム試験は15deg/s・2A。 */
     ctrl->velocity_limit = ROBSTRIDE_VELOCITY_LIMIT_ENABLE;
     ctrl->velocity_dob.velocity_reference_limit = 10.471975512f;
-    ctrl->velocity_dob.current_limit = 16.0f; /* 実験3A制限解除、RS02 iq_ref仕様上限 */
+    ctrl->velocity_dob.current_limit = 5.0f; /* 400deg/s上限での5A運用設定。 */
     ctrl->velocity_dob.velocity_reference_limit_enable = true;
     ctrl->velocity_limit_size = 0.2617993878f;
     ctrl->current_limit = ROBSTRIDE_CURRENT_LIMIT_ENABLE;
-    ctrl->current_limit_size = 16.0f; /* 相電流23Apkではなくiq_refの16A範囲に制限 */
+    ctrl->current_limit_size = 5.0f; /* モーター内部の電流上限も5A。 */
     ctrl->offset_pos = 8.0f;
     ctrl->pid.kp_pos = 7.0f;
     ctrl->pid.kp_vel = 6.0f;
@@ -379,14 +393,15 @@ static void configure_robstride_1(void)
 {
     Robstride_Ctrl_StructTypedef *ctrl = &robstride_dev_info_global[1].ctrl_param;
     configure_robstride_common(&robstride_dev_info_global[1]);
-    ctrl->velocity_dob.J = 0.27f; /* 60deg/sの低周波入出力から得た有効モデル候補 */
-    ctrl->velocity_dob.d = 2.0f; /* 摩擦を含む局所近似。物理粘性の確定値ではない。 */
-    ctrl->velocity_dob.velocity_kp = 4.0f; /* 10ms FBのノイズ増幅を抑える比較候補 */
-    ctrl->velocity_dob.velocity_ki = 10.0f;
-    ctrl->velocity_dob.reference_alpha = 10.0f; /* 肘tau=0.1s候補 */
+    ctrl->velocity_dob.J = 0.121497f;
+    ctrl->velocity_dob.d = 0.02f; /* d=1候補は改善なし。公称値を維持。 */
+    ctrl->velocity_dob.velocity_kp = 8.0f; /* 90度移動の振動低減設定。P4は低周波揺れ・整定悪化で不採用。 */
+    ctrl->velocity_dob.velocity_ki = 20.0f; /* 積分ゲインは指定値20を維持。 */
+    ctrl->velocity_dob.dob_bandwidth = 3.0f; /* Q6は改善なし。Q3を維持。 */
+    ctrl->velocity_dob.reference_alpha = 10.0f; /* 指定により肘tau=0.1sで確定。 */
     ctrl->velocity_dob.K_tau = 0.94f; /* 公称Arms値。電流単位換算は今後の同定対象。 */
-    ctrl->current_limit_size = 11.0f; /* 実験5A制限解除、EL05 iq_ref仕様上限 */
-    ctrl->velocity_dob.current_limit = 11.0f;
+    ctrl->current_limit_size = 5.0f; /* モーター内部の電流上限も5A。 */
+    ctrl->velocity_dob.current_limit = 5.0f; /* 400deg/s上限での5A運用設定。 */
 
     ctrl->offset_pos = 67.0f;
     ctrl->pid.kp_pos = 7.0f;
@@ -433,7 +448,7 @@ void CanDevices_InitBeforeWait(CAN_HandleTypeDef *robomas_can,
     can_devices_prepared = false;
     can_devices_initialized = false;
 
-    /* CAN2 上の RoboMaster を初期化してから、個別設定を反映する。 */
+    /* 指定CAN上のRoboMasterを初期化してから、個別設定を反映する。 */
     Init_RoboMas_CAN_System(robomas_can);
     RoboMas_Init(robomas_dev_info_global, ROBOMAS_DEVICE_COUNT);
 #if ROBOMAS_C610_COUNT > 0U
@@ -540,7 +555,8 @@ void CanDevices_InitAfterWait(DelayFunction_t delay_function)
 
         /* 非ROSの現在位置をcurrent/velocity指令として送らない。 */
         robstride_target_value[i] =
-            device->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS
+            (device->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS ||
+             device->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS_MPC)
                 ? initial_position
                 : 0.0f;
         /* 初期値取得後もEnableせず、最初のROS指令を待つ。 */

@@ -55,7 +55,9 @@ ENTRY(Reset_Handler)
 /* Specify the memory areas */
 MEMORY
 {
-RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 512K
+/* LwIP用領域はBSS/newlib heap/MSPから分離する。 */
+RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 480K
+LWIP_HEAP (rw) : ORIGIN = 0x20078000, LENGTH = 8K
 FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 2048K
 }
 
@@ -69,6 +71,13 @@ _Min_Stack_Size = 0x400; /* required amount of stack */
 /* Define output sections */
 SECTIONS
 {
+  .lwip_heap (NOLOAD) :
+  {
+    __lwip_heap_start__ = .;
+    . = . + LENGTH(LWIP_HEAP);
+    __lwip_heap_end__ = .;
+  } >LWIP_HEAP
+  ASSERT(ORIGIN(RAM) + LENGTH(RAM) <= ORIGIN(LWIP_HEAP), "LwIP heap overlaps normal RAM")
   /* The startup code goes first into FLASH */
   .isr_vector :
   {

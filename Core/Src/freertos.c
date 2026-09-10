@@ -21,6 +21,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "main.h"
+#include "control_period.h"
 #include "cmsis_os.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -66,10 +67,10 @@ osThreadId CanDevicesTaskHandle;
 uint32_t CanDevicesTaskBuffer[1024];
 osStaticThreadDef_t CanDevicesTaskControlBlock;
 osThreadId RobstrideTaskHandle;
-uint32_t RobstrideTaskBuffer[ 256 ];
+uint32_t RobstrideTaskBuffer[ 2048 ];
 osStaticThreadDef_t RobstrideTaskControlBlock;
 osThreadId RobomasTaskHandle;
-uint32_t RobomasTaskBuffer[ 256 ];
+uint32_t RobomasTaskBuffer[ 1024 ];
 osStaticThreadDef_t RobomasTaskControlBlock;
 
 /*
@@ -78,6 +79,9 @@ osStaticThreadDef_t RobomasTaskControlBlock;
  * link-up packet cannot arrive while the CAN device tasks are starting.
  */
 static volatile bool ethernet_init_complete = false;
+/* 最小未使用スタック量[B]。実機復帰後にデバッガで負荷時の余裕を確認する。 */
+volatile uint32_t robstride_stack_free_min_bytes;
+volatile uint32_t robomas_stack_free_min_bytes;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
@@ -183,7 +187,7 @@ void MX_FREERTOS_Init(void) {
                     /* ROS過負荷時にもCAN制御・診断タスクを止めない。 */
                     osPriorityAboveNormal,
                     0,
-                    256,
+                    2048,
                     RobstrideTaskBuffer,
                     &RobstrideTaskControlBlock);
   RobstrideTaskHandle = osThreadCreate(osThread(RobstrideTask), NULL);
@@ -193,7 +197,7 @@ void MX_FREERTOS_Init(void) {
                     /* Motor control must not be starved by Ethernet traffic. */
                     osPriorityAboveNormal,
                     0,
-                    256,
+                    1024,
                     RobomasTaskBuffer,
                     &RobomasTaskControlBlock);
   RobomasTaskHandle = osThreadCreate(osThread(RobomasTask), NULL);
@@ -273,9 +277,8 @@ static void start_robomas_calibration_if_ready(
 #endif
 
 #if ROBOMAS_C610_COUNT > 1U
-  /* ID4単独試験中はID1を起動時にも動かさない。ゲイン設定は維持する。 */
-  const bool id4_only_test = true;
-  if (!id4_only_test && !calibration_started[1] && robomas_fb[1].get_flag != 0U) {
+  /* 統合構成ではID1も既存のSensor1校正経路を使用する。 */
+  if (!calibration_started[1] && robomas_fb[1].get_flag != 0U) {
     printf("[RoboMas] ID %u feedback ready; calibration start\r\n",
            (unsigned int)robomas_dev_info_global[1].device_id);
     RoboMas_Calibration(&robomas_dev_info_global[1],
@@ -309,7 +312,12 @@ void StartRobstrideTask(void const * argument)
 
   uint8_t feedback_divider = 0U;
   TickType_t robstride_last_wake_time = xTaskGetTickCount();
+  TickType_t robstride_stack_check = robstride_last_wake_time;
   for (;;) {
+    if (xTaskGetTickCount()-robstride_stack_check >= pdMS_TO_TICKS(1000)) {
+      robstride_stack_free_min_bytes = uxTaskGetStackHighWaterMark(NULL)*sizeof(StackType_t);
+      robstride_stack_check = xTaskGetTickCount();
+    }
     MicroRos_CheckRobstrideCommandTimeout();
 
     /* ROS受信とCAN送信を分離し、ここをRobstrideの制御周期にする。 */
@@ -318,16 +326,17 @@ void StartRobstrideTask(void const * argument)
 
     /* 目標値の入力はSetTarget()へ集約し、VEL_DOBも同じ経路で500 Hz実行する。 */
     MicroRos_RefreshRobstrideTargets();
+    Robstride_FastLogIdleProbe(); /* 非動作時のRAM連続書き込み検証。DOB開始後は無効。 */
 
-    /* 通常/Disable中は従来の全項目100Hz。DOB運転中は目標書き込みの
-     * Type2応答のみを使用し、追加のパラメーター読み取りは発行しない。 */
+    /* Enable中はPPを含めType2応答に統一する。
+     * Disable中だけ全項目100Hzのパラメーター読み取りを行う。 */
     ++feedback_divider;
     for (uint8_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
       Robstride_DeviceInfo *dev=&robstride_dev_info_global[i];
       Robstride_CurrentDiagnosticPoll(dev); /* 一時的な肘の電流追従検証。応答待ちはしない。 */
       if (Robstride_UsesStandardFeedback(dev)) {
         feedback_data[i]=Read_Robstride_FeedbackData(dev);
-      } else if (feedback_divider >= ARM_TEST_FB_DIVIDER) {
+      } else if (!dev->ctrl_param._enable_flag && feedback_divider >= ARM_TEST_FB_DIVIDER) {
         feedback_data[i] = Get_Robstride_FeedbackData(
             dev);
       }
@@ -338,8 +347,8 @@ void StartRobstrideTask(void const * argument)
 
     HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
     /* 長いservice待ちの後にcatch-up連続計算を行わない。 */
-    if ((TickType_t)(xTaskGetTickCount()-robstride_last_wake_time) >= pdMS_TO_TICKS(2U))
-      robstride_last_wake_time=xTaskGetTickCount();
+    robstride_last_wake_time=ControlPeriod_Rebase(robstride_last_wake_time,
+                                                xTaskGetTickCount(),pdMS_TO_TICKS(2U));
     vTaskDelayUntil(&robstride_last_wake_time,pdMS_TO_TICKS(2U));
   }
   /* USER CODE END StartRobstrideTask */
@@ -369,6 +378,7 @@ void StartRobomasTask(void const * argument)
   (void)argument;
 
   TickType_t robomas_last_wake_time = xTaskGetTickCount();
+  TickType_t robomas_stack_check = robomas_last_wake_time;
 
 #if ROBOMAS_DEVICE_COUNT > 0U
   printf("[RoboMas] task started; prepared=%u ethernet=%u\r\n",
@@ -400,10 +410,17 @@ void StartRobomasTask(void const * argument)
         start_robomas_calibration_if_ready(calibration_started);
       }
 
+      /* C620の初回受信までは送信しない。接続後は途絶時もゼロ送信経路を維持。 */
+      static bool robomas_received_once = false;
+      for (uint8_t i = 0U; i < num_of_robomas; ++i) {
+        if (robomas_fb[i].get_flag) robomas_received_once = true;
+      }
+      if (robomas_received_once) {
       RoboMas_SendRequest(robomas_dev_info_global,
                           num_of_robomas,
                           500.0f,
                           &hcan2);
+      }
 
 #if ROBOMAS_C610_COUNT > 0U
     /* 各モーターの完了を個別に通知する。 */
@@ -424,6 +441,12 @@ void StartRobomasTask(void const * argument)
     }
 #endif
     /* 未接続モーターがあっても周期処理を止めない。 */
+    if (xTaskGetTickCount()-robomas_stack_check >= pdMS_TO_TICKS(1000)) {
+      robomas_stack_free_min_bytes = uxTaskGetStackHighWaterMark(NULL)*sizeof(StackType_t);
+      robomas_stack_check = xTaskGetTickCount();
+    }
+    robomas_last_wake_time=ControlPeriod_Rebase(robomas_last_wake_time,
+                                              xTaskGetTickCount(),pdMS_TO_TICKS(2U));
     vTaskDelayUntil(&robomas_last_wake_time, pdMS_TO_TICKS(2U));
   }
   /* USER CODE END StartRobomasTask */

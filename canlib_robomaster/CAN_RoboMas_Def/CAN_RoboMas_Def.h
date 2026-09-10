@@ -76,6 +76,7 @@ typedef struct {
     float _req_value;
     volatile bool _target_valid;
     volatile bool _enable_flag;
+    volatile bool _startup_hold; /* 最初のROS指令まで校正位置を保持。 */
 
     // for calibration
     bool _is_calibrating;

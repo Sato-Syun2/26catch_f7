@@ -11,11 +11,20 @@
 #include "CAN_RoboMas_Def.h"
 #include "CAN_RoboMas_System.h"
 
-static volatile uint32_t id4_last_rx_tick = 0U;
-static volatile bool id4_rx_seen = false;
+static volatile uint32_t last_rx_tick[9];
+static volatile bool rx_seen[9];
+bool RoboMas_FeedbackFresh(uint8_t id)
+{
+    if (id == 0U || id >= 9U || !rx_seen[id]) return false;
+    /* 必ず受信時刻→現在時刻の順で読む。逆順では間の受信ISRにより
+     * 受信時刻が現在時刻より新しくなり、符号なし減算が約49日に化ける。 */
+    const uint32_t received = last_rx_tick[id];
+    const uint32_t now = HAL_GetTick();
+    return (uint32_t)(now - received) <= 10U;
+}
 bool RoboMas_Id4FeedbackFresh(void)
 {
-    return id4_rx_seen && (uint32_t)(HAL_GetTick() - id4_last_rx_tick) <= 10U;
+    return RoboMas_FeedbackFresh(4U);
 }
 
 
@@ -150,11 +159,9 @@ void RoboMas_WhenTxMailboxAbortCallbackCalled(CAN_HandleTypeDef *phcan) {
 
 
 void _set_fb_data_raw(const uint8_t rxData[], uint8_t device_id) {
-    if (device_id > 9 || device_id <= 0)return;
-    if (device_id == 4U) {
-        id4_last_rx_tick = HAL_GetTick();
-        id4_rx_seen = true;
-    }
+    if (device_id >= 9 || device_id == 0)return;
+    last_rx_tick[device_id] = HAL_GetTick();
+    rx_seen[device_id] = true;
     robomas_feedback_data_raw* fb_data_row = &_robomas_feedback_data_raw_global[device_id];
 
     fb_data_row->_get_counter += 1;
@@ -379,7 +386,11 @@ RoboMas_FeedbackData Get_RoboMas_FeedbackData(RoboMas_DeviceInfo *device_info) {
 
     RoboMas_FeedbackData fb_data;
     fb_data.device_id = device_id;
-    robomas_feedback_data_raw *fb_data_row = &(_robomas_feedback_data_raw_global[device_id]);
+    /* ISR更新中の64bit回転数と角度を混ぜない。 */
+    const uint32_t primask = robomas_enter_critical();
+    const robomas_feedback_data_raw snapshot = _robomas_feedback_data_raw_global[device_id];
+    robomas_exit_critical(primask);
+    const robomas_feedback_data_raw *fb_data_row = &snapshot;
 
     int32_t offset_pos = (int32_t) (fb_data_row->pos) - (int32_t) (fb_data_row->_internal_offset_pos);
     if (device_info->ctrl_param.use_internal_offset != ROBOMAS_USE_OFFSET_POS_DISABLE) {
@@ -413,9 +424,11 @@ RoboMas_FeedbackData Get_RoboMas_FeedbackData(RoboMas_DeviceInfo *device_info) {
 }
 
 void _change_internal_offset_for_calib(RoboMas_DeviceInfo *device_info){
-    if (device_info->device_id > 9 || device_info->device_id <= 0)return;
+    if (device_info->device_id >= 9 || device_info->device_id == 0)return;
+    const uint32_t primask = robomas_enter_critical();
     robomas_feedback_data_raw* fb_data_row = &_robomas_feedback_data_raw_global[device_info->device_id];
 
     fb_data_row->_internal_offset_pos = fb_data_row->pos;  // 現在の位置をoffsetに設定
     fb_data_row->_rot_num = 0;  // 回転数をリセット
+    robomas_exit_critical(primask);
 }

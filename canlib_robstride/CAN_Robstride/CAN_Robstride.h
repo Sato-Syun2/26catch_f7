@@ -36,9 +36,16 @@ uint8_t Robstride_SetControlDisabled(Robstride_DeviceInfo *dev_info,
 
 void Robstride_ChangeControl(Robstride_DeviceInfo *dev_info, ROBSTRIDE_CTRL_TYPE new_ctrl_type, DelayFunction_t f_delay);
 
-/* ctrl_typeに応じて内部レジスタへ送信し、VEL_DOBではF7側で電流を計算する。 */
-HAL_StatusTypeDef Robstride_SetTarget(Robstride_DeviceInfo *device_info,
-                                      float target_value);
+HAL_StatusTypeDef Robstride_SetTarget(Robstride_DeviceInfo *device_info, float target_value);
+
+/* ROSの世代が一致する場合だけ、通常目標値をCANへ投入する。 */
+HAL_StatusTypeDef Robstride_SetTargetIfGeneration(
+    Robstride_DeviceInfo *device_info,
+    float target_value,
+    uint32_t expected_generation);
+
+uint32_t Robstride_GetTargetGeneration(const Robstride_DeviceInfo *device_info);
+void Robstride_InvalidateTargetGeneration(Robstride_DeviceInfo *device_info);
 
 void Robstride_PID_Pos(Robstride_DeviceInfo *device_info, float target_pos, float now_pos);
 
@@ -47,6 +54,7 @@ void Robstride_SetTarget_Operation(Robstride_DeviceInfo *device_info, float targ
 uint8_t AreAllRobstridesConnected(Robstride_DeviceInfo dev_info_array[], uint8_t size);
 
 void Robstride_WaitForConnect(Robstride_DeviceInfo dev_info_array[], uint8_t size, DelayFunction_t f_delay);
+void Robstride_FastLogIdleProbe(void);
 
 void Robstride_Initialization(Robstride_DeviceInfo dev_info_array[], uint8_t size);
 

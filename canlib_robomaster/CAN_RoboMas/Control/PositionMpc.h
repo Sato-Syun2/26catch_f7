@@ -21,6 +21,8 @@ typedef struct {
 bool Id4MinimumTimePlan(float x,float v,float target,float alpha,float limit,
                        float *switch_time,float *arrival_time,float *direction);
 void Id4PositionMpc_Reset(Id4PositionMpc *s);
+float PositionMpc_UpdateBounded(Id4PositionMpc *s, float x, float v,
+    float target, float alpha, float dt, float minimum, float maximum, float speed);
 float Id4PositionMpc_Update(Id4PositionMpc *s, float x, float v,
                            float target, float alpha, float dt);
 #endif

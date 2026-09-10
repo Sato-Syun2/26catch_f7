@@ -20,6 +20,8 @@ p.add_argument('--velocity-motor', type=int, choices=(1,2))
 p.add_argument('--position-motor', type=int, choices=(1,2), help='通常PPで指定軸を試験中心へ移動')
 p.add_argument('--position-target', type=float, default=0.)
 p.add_argument('--dob', action='store_true')
+p.add_argument('--mpc', action='store_true', help='position-motorをMode5で位置ステップ試験（通常は10度以内）')
+p.add_argument('--mpc-zero-to-ninety', action='store_true', help='Mode5で0度へ準備移動・保持後、90度ステップを個別測定')
 p.add_argument('--both-axes', action='store_true', help='両軸をF7 DOB速度制御で同時に試験')
 p.add_argument('--amplitude', type=float, default=3.)
 p.add_argument('--test-seconds', type=float, default=10., help='正弦速度試験の長さ、最大30秒')
@@ -35,21 +37,28 @@ p.add_argument('--chirp-phase-deg', type=float, choices=(0.,90.), default=0., he
 p.add_argument('--angle-chirp', action='store_true', help='角度±5度・本体60秒・前後5秒の速度DOB同定')
 p.add_argument('--shaped-velocity-chirp', action='store_true', help='基準モデルの角振幅を抑え、速度入力を最大600deg/sへ増加')
 p.add_argument('--model-tau', type=float, default=.1, help='angle-chirpのF7一次遅れ時定数[s]')
-p.add_argument('--settle-seconds', type=float, default=1., help='速度指令0での終了時確認、最大5秒')
+p.add_argument('--settle-seconds', type=float, default=1., help='速度指令0での終了時確認、最大30秒。絶対角保護は維持')
 p.add_argument('--current-probe', action='store_true', help='指定軸に正負0.2/0.4/0.6Aの80msパルス')
 p.add_argument('--negative-probe', action='store_true', help='current-probeを-0.8A・80msの1回だけにする')
 p.add_argument('--current-step', action='store_true', help='±0.2Aを各250ms・3往復。定常値と立上がりを比較')
 p.add_argument('--step-current', type=float, default=.2, help='current-step振幅[A]、0超～0.4')
 p.add_argument('--step-pairs', type=int, default=3, help='current-step往復数、1～6')
 p.add_argument('--tag', default='')
+p.add_argument('--hold-only', action='store_true', help='単軸DOBで速度0だけをtest-seconds保持。波形を送信しない')
+p.add_argument('--position-hold-seconds', type=float, default=0., help='PPで中心到達後に保持する秒数、最大60秒')
 a = p.parse_args()
+if a.mpc_zero_to_ninety and (not a.mpc or a.position_target != 90.): p.error('zero-to-ninety requires mpc and position-target 90')
+if a.mpc and (not a.move or not a.position_motor or a.dob or a.velocity_motor): p.error('mpc requires position-motor without dob/velocity')
+if not 0<=a.position_hold_seconds<=60: p.error('position hold must be in [0,60]')
+if a.position_hold_seconds and not a.position_motor: p.error('position hold requires position-motor')
+if a.hold_only and (not a.move or not a.dob or not a.velocity_motor or a.both_axes or a.chirp or a.angle_chirp or a.shaped_velocity_chirp or a.current_probe): p.error('hold-only requires single-axis DOB without waveform/probe')
 if not 0<a.amplitude<=(600 if a.shaped_velocity_chirp or a.wide_velocity_chirp else 60): p.error('invalid velocity amplitude')
 if not (.1 if a.angle_chirp else .5)<=a.frequency_start<a.frequency_end<=10: p.error('invalid frequency range')
 if not 0<a.current_monitor_limit<=16: p.error('current monitor limit must be in (0,16]')
 if not a.angle_chirp and not a.shaped_velocity_chirp and not a.wide_velocity_chirp and a.amplitude/(math.pi*(a.frequency_start if a.chirp else .5))>8: p.error('nominal velocity integral exceeds 8deg excursion budget')
 if not 0<a.test_seconds<=30: p.error('test-seconds must be in (0,30]')
 if not 10<=a.chirp_seconds<=60: p.error('chirp-seconds must be in [10,60]')
-if not 1<=a.settle_seconds<=5: p.error('settle-seconds must be in [1,5]')
+if not 1<=a.settle_seconds<=30: p.error('settle-seconds must be in [1,30]')
 if a.position_motor and (not a.move or a.velocity_motor or a.dob or a.both_axes or not -120<=a.position_target<=120):
     p.error('position-motor requires ordinary single-axis move to [-120,120]')
 if a.both_axes and (not a.move or not a.dob or not a.velocity_motor): p.error('both-axes requires active DOB test')
@@ -141,7 +150,8 @@ def loop(duration, publish=False):
                 if a.wide_velocity_chirp:
                     outside=False  # 依頼により相対変位制限のみ解除。絶対角は下で常に確認。
                 if mid==a.position_motor:
-                    outside=not min(initial[mid],a.position_target)-5<=v.position<=max(initial[mid],a.position_target)+5
+                    lower=min(initial[mid],a.position_target,0.) if a.mpc_zero_to_ninety else min(initial[mid],a.position_target)
+                    outside=not lower-5<=v.position<=max(initial[mid],a.position_target)+5
                 if not -145 < v.position < 145 or outside:
                     raise RuntimeError('position excursion')
                 if abs(v.current)>a.current_monitor_limit: raise RuntimeError('reference current monitor threshold exceeded')
@@ -174,7 +184,7 @@ def loop(duration, publish=False):
                         else: u.velocity=float(target)
                         targets[mid]=target
                     else:
-                        if mid==a.position_motor and center_started is not None:
+                        if mid==a.position_motor and center_started is not None and not a.mpc:
                             delta=a.position_target-initial[mid]
                             target=initial[mid]+math.copysign(min(abs(delta),15.*(now-center_started)),delta)
                             targets[mid]=target
@@ -194,6 +204,13 @@ result.update(step_current_A=a.step_current,step_pairs=a.step_pairs)
 result['both_axes']=a.both_axes
 result['angle_chirp']=a.angle_chirp
 result.update(position_motor=a.position_motor,position_target=a.position_target)
+result['mpc']=a.mpc
+result['mpc_zero_to_ninety']=a.mpc_zero_to_ninety
+if a.mpc:
+    result['velocity_motor']=a.position_motor  # RAM速度指令ログの対象軸
+    result['mpc_header']=Path('canlib_robstride/CAN_Robstride/Control/ArmPositionMpc.h').read_text()
+    result['mpc_source']=Path('canlib_robstride/CAN_Robstride/Control/ArmPositionMpc.c').read_text()
+result.update(hold_only=a.hold_only,position_hold_seconds=a.position_hold_seconds)
 if velocity_wave is not None:
     result.update(velocity_wave=vars(velocity_wave),duration=velocity_wave.duration,
                   waveform_preflight=velocity_wave.verify())
@@ -214,7 +231,7 @@ result['arm_test_configuration']=Path('Core/Inc/arm_test_config.h').read_text()
 result['velocity_estimator_source']=Path('canlib_robstride/CAN_Robstride/Control/ArmVelocityEstimate.h').read_text()
 result['robstride_control_source']=Path('canlib_robstride/CAN_Robstride/CAN_Robstride.c').read_text()
 result['robstride_system_source']=Path('canlib_robstride/CAN_Robstride_System/CAN_Robstride_System.c').read_text()
-result['current_feedback_source']='Type2 torque / nominal Kt (Arms equivalent)' if a.dob else 'iqf'
+result['current_feedback_source']='Type2 torque / nominal Kt (Arms equivalent) on DOB/MPC axis; iqf on PP axis' if a.dob or a.mpc else 'iqf'
 try:
     loop(3)
     discovery_deadline=time.monotonic()+7.
@@ -229,6 +246,8 @@ try:
                 raise RuntimeError('initial state/range unsuitable')
             initial[mid]=targets[mid]=v.position
         result['initial_position']=initial.copy()
+        if a.mpc and not a.mpc_zero_to_ninety and abs(a.position_target-initial[a.position_motor])>10:
+            raise RuntimeError('MPC initial test step exceeds 10deg')
         if a.wide_velocity_chirp:
             # 有限可動域のため、モデル積分だけでも絶対角を越える試験は開始しない。
             if not 0<a.model_tau<=.5: raise RuntimeError('invalid model tau')
@@ -246,7 +265,7 @@ try:
         for mid in (1,4): service(mid,'disable',kind='robomaster')
         velocity_motor=a.velocity_motor
         # 全台Disable中にモード設定を終え、service中のFB一時停止を動作と重ねない。
-        for mid in (1,2): service(mid,'mode',(2 if a.current_probe else (4 if a.dob else 1)) if mid==velocity_motor or a.both_axes else 0)
+        for mid in (1,2): service(mid,'mode',5 if a.mpc and mid==a.position_motor else ((2 if a.current_probe else (4 if a.dob else 1)) if mid==velocity_motor or a.both_axes else 0))
         loop(.3)
         stage='prepare';loop(.3,True)
         result['measurement_start_f7']=last_f7_time
@@ -258,17 +277,33 @@ try:
             for number,current in enumerate(sequence):
                 stage=f'current_{number:02d}_{current:+.3f}';pulse_current=current;loop(.25 if a.current_step else .08,True)
                 stage=f'coast_{number:02d}_{current:+.3f}';pulse_current=0.;loop(.4 if a.current_step else .7,True)
+        elif a.hold_only:
+            wave_start=None;stage='dob_zero_hold';loop(a.test_seconds,True)
         elif a.velocity_motor:
             stage='angle_chirp' if angle_wave is not None else ('velocity_chirp' if a.chirp else 'velocity_sine')
             wave_start=time.monotonic();loop(angle_wave.duration if angle_wave is not None else (velocity_wave.duration if velocity_wave is not None else (a.chirp_seconds if a.chirp else a.test_seconds)),True)
             wave_start=None;stage='velocity_zero';loop(a.settle_seconds,True)
         elif a.position_motor:
-            mid=a.position_motor;targets[mid]=a.position_target
+            mid=a.position_motor
+            if a.mpc_zero_to_ninety:
+                targets[mid]=0.
+                stage=f'prepare_zero_{mid}'
+                loop(abs(initial[mid])/15.+8.,True)
+                if abs(fb[(1,mid)].position)>.5:
+                    raise RuntimeError('zero preparation target not reached')
+                stage='zero_hold';loop(2.,True)
+                if abs(fb[(1,mid)].position)>.5:
+                    raise RuntimeError('zero hold outside tolerance')
+                result['step_initial_position']=fb[(1,mid)].position
+                result['step_start_f7']=last_f7_time
+            targets[mid]=a.position_target
             center_started=time.monotonic()
             stage=f'center_{mid}'
             loop(abs(initial[mid]-a.position_target)/15.+8.,True)
             if abs(fb[(1,mid)].position-a.position_target)>.5:
                 raise RuntimeError('center target not reached')
+            if a.position_hold_seconds:
+                stage='position_hold';loop(a.position_hold_seconds,True)
         else:
             for mid in ((1,) if a.retreat_elbow else (2,1)):
                 targets[mid]=initial[mid]-math.copysign(5.,initial[mid])
@@ -287,7 +322,7 @@ finally:
     result['final']={str(k):{'position':v.position,'velocity':v.velocity,'state':v.state} for k,v in fb.items()}
     result['measurement_end_f7']=last_f7_time
     f.close();(out/'metadata.json').write_text(json.dumps(result,indent=2))
-    print(out,{k:v for k,v in result.items() if k not in ('configuration_source','velocity_estimator_source','arm_test_configuration')},flush=True)
+    print(out,{k:v for k,v in result.items() if k not in ('configuration_source','velocity_estimator_source','arm_test_configuration','robstride_control_source','robstride_system_source','mpc_source')},flush=True)
     n.destroy_node();rclpy.shutdown()
 if result.get('result')=='abort' or any(k.startswith('disable_error') for k in result):
     raise SystemExit(1)
