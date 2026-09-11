@@ -15,6 +15,8 @@ typedef struct {
     unsigned iterations;
 } Id4PositionMpc;
 void Id4PositionMpc_Reset(Id4PositionMpc *s);
+float PositionMpc_UpdateBounded(Id4PositionMpc *s, float x, float v,
+    float target, float alpha, float dt, float minimum, float maximum, float speed);
 float Id4PositionMpc_Update(Id4PositionMpc *s, float x, float v,
                            float target, float alpha, float dt);
 #endif

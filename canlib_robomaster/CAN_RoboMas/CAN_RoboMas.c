@@ -11,6 +11,7 @@
 #include "usart.h"
 #include "id4_velocity_safety.h"
 #include "PositionMpc.h"
+#include "C620Commission.h"
 
 // Private Function Prototypes --------------------------------
 static bool get_switch_state(GPIO_TypeDef* limit_port, uint16_t limit_pin, ROBOMAS_SWITCH_TYPE sw_type);
@@ -230,6 +231,7 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
 
         const RoboMas_FeedbackData guard_feedback =
             Get_RoboMas_FeedbackData(&dev_info_array[i]);
+        if (C620_GuardZero(&dev_info_array[i], &guard_feedback)) continue;
         /* 受信途絶時に古い速度を使って逆向き電流を出し続けない。 */
         if (device_id == 4U && !RoboMas_Id4FeedbackFresh()) {
             RoboMas_ControlDisable(&dev_info_array[i]);
@@ -265,6 +267,8 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
 
                 _change_internal_offset_for_calib(&dev_info_array[i]);
                 if (device_id == 4U) id4_calibration_completed = true;
+                if (dev_info_array[i].device_type == ROBOMASTER_C620)
+                    C620_CalibrationCompleted();
                 
                 RoboMas_ControlDisable(&dev_info_array[i]);
                 RoboMas_ChangeControl(&dev_info_array[i], dev_info_array[i].ctrl_param._ctrl_type_before_calib);
@@ -274,7 +278,8 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
                     RoboMas_SetTarget(&dev_info_array[i], 0.0f);
                 }
                 /* ID4は校正終了後に自動で位置保持を開始しない。 */
-                if (device_id != 4U) RoboMas_ControlEnable(&dev_info_array[i]);
+                if (device_id != 4U && dev_info_array[i].device_type != ROBOMASTER_C620)
+                    RoboMas_ControlEnable(&dev_info_array[i]);
 
                 // Disable 状態のまま返す
                 continue;
@@ -320,6 +325,12 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
                    dev_info_array[i].ctrl_param.ctrl_type == ROBOMAS_CTRL_POS_MPC) {
             float velocity_reference = dev_info_array[i].ctrl_param._target_value;
             if (dev_info_array[i].ctrl_param.ctrl_type == ROBOMAS_CTRL_POS_MPC) {
+                if (dev_info_array[i].device_type == ROBOMASTER_C620) {
+                    velocity_reference = C620_MpcReference(fb_data.position,
+                        fb_data.velocity, velocity_reference,
+                        dev_info_array[i].ctrl_param.velocity_dob.reference_alpha,
+                        1.0f/update_freq_hz);
+                } else {
                 if (device_id != 4U || !id4_calibration_completed) {
                     RoboMas_ControlDisable(&dev_info_array[i]); continue;
                 }
@@ -333,6 +344,7 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
                     1.0f/update_freq_hz);
                 const uint32_t elapsed=HAL_GetTick()-begin;
                 if (elapsed>id4_mpc_max_runtime_ms) id4_mpc_max_runtime_ms=elapsed;
+                }
             }
             if (device_id == 4U) {
                 /* Mode4の従来800mm/s制限と、Mode5の無負荷仕様上限は分離する。 */
@@ -416,6 +428,8 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
                     dev_info_array[i].ctrl_param._is_calibrating;
                 t_current = RoboMas_PID_Ctrl_AW(&(dev_info_array[i].ctrl_param.pid_vel), diff,
                     id4_calibrating || dev_info_array[i].ctrl_param.current_limit == ROBOMAS_LIMIT_ENABLE,
+                    dev_info_array[i].device_type == ROBOMASTER_C620
+                        ? C620_CurrentLimit(&dev_info_array[i]) :
                     id4_calibrating ? ID4_CALIBRATION_CURRENT_A :
                         dev_info_array[i].ctrl_param.current_limit_size, update_freq_hz);
             }
@@ -443,7 +457,15 @@ void RoboMas_SendRequest(RoboMas_DeviceInfo dev_info_array[], uint8_t size, floa
                 request_value = c610_current_f2int( dev_info_array[i].ctrl_param._req_value);
                 break;
             case ROBOMASTER_C620:
-                dev_info_array[i].ctrl_param._req_value = _clip_f_abs(t_current, 20.0f);
+                if (!isfinite(t_current)) {
+                    RoboMas_ControlDisable(&dev_info_array[i]);
+                    t_current = 0.0f;
+                }
+                dev_info_array[i].ctrl_param._req_value =
+                    _clip_f_abs(t_current, C620_CurrentLimit(&dev_info_array[i]));
+                /* DOBの前回入力は、実際に送信する制限後の電流と一致させる。 */
+                dev_info_array[i].ctrl_param.velocity_dob_state.previous_current =
+                    dev_info_array[i].ctrl_param._req_value;
                 request_value = c620_current_f2int( dev_info_array[i].ctrl_param._req_value);
                 break;
             default:
@@ -501,6 +523,9 @@ static bool get_switch_state(GPIO_TypeDef* limit_port, uint16_t limit_pin, ROBOM
 }
 
 void RoboMas_send_current(RoboMas_DeviceInfo *device_info, float current, CAN_HandleTypeDef *phcan){
+    if (device_info->device_id == 0U || device_info->device_id > 8U) return;
+    /* C620は保護を通る周期制御だけに限定。生電流APIからの迂回は禁止。 */
+    if (device_info->device_type == ROBOMASTER_C620) current = 0.0f;
     int16_t request_value;
     switch (device_info->device_type) {
         case ROBOMASTER_C610:
@@ -529,6 +554,7 @@ void RoboMas_send_current(RoboMas_DeviceInfo *device_info, float current, CAN_Ha
 }
 
 void RoboMas_Calibration(RoboMas_DeviceInfo *device_info, float calib_vel, ROBOMAS_SWITCH_TYPE sw_type, GPIO_TypeDef* limit_port, uint16_t limit_pin, CAN_HandleTypeDef *phcan){
+    (void)phcan;
     if(device_info->ctrl_param.use_internal_offset != ROBOMAS_USE_OFFSET_POS_CALIB) return;
 
     device_info->ctrl_param._sw_type = sw_type;
@@ -537,6 +563,7 @@ void RoboMas_Calibration(RoboMas_DeviceInfo *device_info, float calib_vel, ROBOM
     device_info->ctrl_param._ctrl_type_before_calib = device_info->ctrl_param.ctrl_type;
 
     RoboMas_ControlDisable(device_info);
+    /* 速度PIで校正。C620だけ電流上限10Aを許可し、必要な電流を出す。 */
     RoboMas_ChangeControl(device_info, ROBOMAS_CTRL_VEL);
     RoboMas_SetTarget(device_info, calib_vel);
     device_info->ctrl_param._is_calibrating = true;
@@ -544,6 +571,7 @@ void RoboMas_Calibration(RoboMas_DeviceInfo *device_info, float calib_vel, ROBOM
 }
 
 void RoboMas_ChangeControl(RoboMas_DeviceInfo *dev_info, ROBOMAS_CTRL_TYPE new_ctrl_type) {
+    if (dev_info->device_type == ROBOMASTER_C620) C620_ResetMpc();
     if (dev_info->device_id == 4U) id4_mpc_reset_requested=true;
     RoboMas_Ctrl_Struct_init(&(dev_info->ctrl_param));
     dev_info->ctrl_param.ctrl_type = new_ctrl_type;
@@ -558,12 +586,14 @@ void RoboMas_SetTarget(RoboMas_DeviceInfo *device_info, float target_value) {
 }
 
 void RoboMas_ControlEnable(RoboMas_DeviceInfo *dev_info) {
+    if (dev_info->device_type == ROBOMASTER_C620 && !C620_EnableAllowed()) return;
     if (dev_info->device_id == ROBOMAS_TEST_GUARD_ID &&
         robomas_test_guard_tripped) return;
     dev_info->ctrl_param._enable_flag = true;
 }
 
 void RoboMas_ControlDisable(RoboMas_DeviceInfo *dev_info) {
+    if (dev_info->device_type == ROBOMASTER_C620) C620_ResetMpc();
     if (dev_info->device_id == 4U) id4_mpc_reset_requested=true;
     /*
      * Disabling must be a safe state transition, not only a scheduling

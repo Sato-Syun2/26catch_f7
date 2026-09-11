@@ -259,25 +259,35 @@ static void configure_c620_1(void)
         &robomas_dev_info_global[ROBOMAS_C610_COUNT].ctrl_param;
     configure_robomas_common(&robomas_dev_info_global[ROBOMAS_C610_COUNT]);
 
-    ctrl->rotation = ROBOMAS_ROT_ACW;
-    ctrl->quant_per_rot = 2.0f * 3.14159265359f / 36.0f;
-    ctrl->current_limit_size = 2.0f;
+    /* ohmori/disturbance_dev 9067042 の実機設定。換算値は実測前に変更しない。 */
+    ctrl->rotation = ROBOMAS_ROT_CW;
+    ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_CALIB;
+    ctrl->quant_per_rot = 125.0f / 36.0f * 2.0f;
+    ctrl->current_limit_size = 2.5f;
+    ctrl->velocity_limit = ROBOMAS_LIMIT_ENABLE;
     ctrl->velocity_limit_size = 10.0f;
-    ctrl->pid_vel.kp = 2.0f;
-    ctrl->pid_vel.ki = 4.0f;
+    ctrl->pid_vel.kp = 0.2f;
+    ctrl->pid_vel.ki = 0.4f;
     ctrl->pid_vel.kd = 0.0f;
     ctrl->pid_vel.kff = 0.0f;
-    ctrl->pid_pos.kp = 4.0f;
+    ctrl->pid_pos.kp = 2.0f;
     ctrl->pid_pos.ki = 0.0f;
     ctrl->pid_pos.kd = 0.0f;
     ctrl->pid_pos.kff = 0.0f;
     configure_robomas_velocity_dob(&ctrl->velocity_dob,
                                    ctrl->velocity_limit_size,
                                    ctrl->current_limit_size,
-                                   1.0f,
+                                   2.0f * 3.14159265359f / ctrl->quant_per_rot,
                                    ctrl->velocity_limit == ROBOMAS_LIMIT_ENABLE,
                                    ctrl->current_limit == ROBOMAS_LIMIT_ENABLE,
                                    false);
+    /* 同定前の暫定値。出力は別途CAN送信直前にも制限する。 */
+    ctrl->velocity_dob.velocity_kp = 0.05f;
+    ctrl->velocity_dob.velocity_ki = 0.10f;
+    ctrl->velocity_dob.dob_bandwidth = 5.0f;
+    ctrl->velocity_dob.reference_alpha = 5.0f;
+    ctrl->velocity_dob.velocity_limit = ctrl->velocity_limit_size *
+        ctrl->velocity_dob.velocity_unit_to_rad_s;
 }
 #endif
 

@@ -41,6 +41,7 @@
 #include "CAN_Robstride.h"
 #include "robstride_constant.h"
 #include "RoboMas_utils.h"
+#include "C620Commission.h"
 #include "Robstride_utils.h"
 
 #define MICROROS_AGENT_IP              "192.168.5.100"
@@ -297,7 +298,10 @@ static bool robstride_timeout_mode(const ROBSTRIDE_CTRL_TYPE ctrl_type)
 
 static bool robomas_timeout_mode(const ROBOMAS_CTRL_TYPE ctrl_type)
 {
-  return ctrl_type == ROBOMAS_CTRL_VEL ||
+  return ctrl_type == ROBOMAS_CTRL_POS ||
+         ctrl_type == ROBOMAS_CTRL_POS_AW ||
+         ctrl_type == ROBOMAS_CTRL_POS_MPC ||
+         ctrl_type == ROBOMAS_CTRL_VEL ||
          ctrl_type == ROBOMAS_CTRL_VEL_DOB ||
          ctrl_type == ROBOMAS_CTRL_CURRENT;
 }
@@ -585,8 +589,12 @@ static bool set_robstride_mode(Robstride_DeviceInfo *device, uint8_t mode)
 
 static bool set_robomas_mode(RoboMas_DeviceInfo *device, uint8_t mode)
 {
-  /* 現段階では機構・モデルを確認したID4のみ。 */
-  if (mode == MICROROS_MODE_POSITION_MPC && device->device_id != 4U) return false;
+  /* ID4と、校正・端点確認ゲートを持つC620のみ。 */
+  if (mode == MICROROS_MODE_POSITION_MPC && device->device_id != 4U &&
+      device->device_type != ROBOMASTER_C620) return false;
+  if (device->device_type == ROBOMASTER_C620 &&
+      (device->ctrl_param._enable_flag || device->ctrl_param._is_calibrating || C620_IsSurvey()))
+    return false;
   ROBOMAS_CTRL_TYPE ctrl_type;
   if (!map_robomas_mode(mode, &ctrl_type)) {
     return false;
@@ -626,6 +634,26 @@ static void parameter_service_callback(const void *request_msg,
   }
 
   microros_service_action_t action;
+  /* C620の校正・端探索を通常のenableと分離する。文字列は受信上限内。 */
+  if (target_type == MICROROS_TARGET_ROBOMASTER &&
+      request->command.size >= 5U && request->command.data != NULL &&
+      strncmp(request->command.data, "c620_", 5U) == 0) {
+    const int index = find_robomas_device_by_id(device_id);
+    if (index < 0 || !begin_control_transaction()) {
+      set_parameter_response(response, false, "target missing/control busy");
+      return;
+    }
+    char message[MICROROS_RESPONSE_STORAGE_SIZE];
+    const bool ok = C620_Service(&robomas_dev_info_global[index],
+                                request->command.data, request->data,
+                                message, sizeof(message));
+    if (ok && (strcmp(request->command.data, "c620_survey") == 0 ||
+               strcmp(request->command.data, "c620_calibrate") == 0))
+      reset_robomas_command_watchdog((uint32_t)index);
+    end_control_transaction();
+    set_parameter_response(response, ok, message);
+    return;
+  }
   uint8_t mode;
   const microros_service_command_result_t command_result =
       parse_service_command(&request->command,
@@ -709,6 +737,7 @@ static void parameter_service_callback(const void *request_msg,
         operation_error = "enable blocked by safety guard";
       }
     } else {
+      if (device->device_type == ROBOMASTER_C620) C620_CancelRequest();
       RoboMas_ControlDisable(device);
     }
   }
