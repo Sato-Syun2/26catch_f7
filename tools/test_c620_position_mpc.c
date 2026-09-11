@@ -14,9 +14,9 @@ int main(void)
 {
     const float maximum=180.145263671875f-5.0f, dt=.002f, alpha=30;
     float x=0, v=0;
-    const float speeds[]={20,50,100,200};
+    const float speeds[]={20,50,100,200,400};
     const float targets[]={100,0,maximum,50,150};
-    for (unsigned speed_index=0;speed_index<4;speed_index++) {
+    for (unsigned speed_index=0;speed_index<sizeof(speeds)/sizeof(speeds[0]);speed_index++) {
     const float speed=speeds[speed_index];x=0;v=0;
     for (unsigned j=0;j<5;j++) {
         Id4PositionMpc s;Id4PositionMpc_Reset(&s);

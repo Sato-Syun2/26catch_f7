@@ -8,6 +8,7 @@
 #include <robstride_constant.h>
 #include <Robstride_Control.h>
 #include "arm_test_config.h"
+#include "arm_feedback_guard.h"
 #include "Control/ArmVelocityEstimate.h"
 #include "Control/ArmPositionMpc.h"
 
@@ -56,15 +57,12 @@ bool Robstride_ArmGuardCheck(Robstride_DeviceInfo *device)
     if (!device) return false;
     const uint8_t id = device->device_id;
     if (id != 1U && id != 2U) return true;
-    float position;
-    uint32_t tick;
-    bool ok = Robstride_ReadMeasuredPosition(device, &position, &tick) &&
-              (uint32_t)(HAL_GetTick() - tick) <= 50U &&
-              isfinite(position) && position >= ARM_TEST_POSITION_MIN_DEG &&
-              position <= ARM_TEST_POSITION_MAX_DEG;
-    /* 起動時の未受信はEnableを拒否するだけ。動作中の異常はラッチ。 */
-    if (!ok && device->ctrl_param._enable_flag != 0U) arm_guard_tripped[id] = true;
-    return ok && !arm_guard_tripped[id];
+    float position = 0.0f;
+    uint32_t tick = 0U;
+    const bool measured = Robstride_ReadMeasuredPosition(device, &position, &tick);
+    return ArmFeedbackGuard_Check(measured, (uint32_t)(HAL_GetTick() - tick),
+        measured && ArmPositionMpc_TargetAllowedForDevice(id, position),
+        device->ctrl_param._enable_flag != 0U, &arm_guard_tripped[id]);
 }
 
 // Private Function Prototypes --------------------------------
@@ -384,7 +382,7 @@ static bool robstride_target_parameter(const Robstride_DeviceInfo *const device_
     switch (device_info->ctrl_param.ctrl_type) {
         case ROBSTRIDE_CTRL_POS:
             if ((device_info->device_id == 1U || device_info->device_id == 2U) &&
-                (value < ARM_TEST_POSITION_MIN_DEG || value > ARM_TEST_POSITION_MAX_DEG)) {
+                !ArmPositionMpc_TargetAllowedForDevice(device_info->device_id, value)) {
                 arm_guard_tripped[device_info->device_id] = true;
                 return false;
             }
@@ -1133,7 +1131,7 @@ static HAL_StatusTypeDef robstride_set_target_internal(
         return HAL_BUSY;
 
     if (device_info && device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS_MPC &&
-        (!ArmPositionMpc_TargetAllowed(target_value) || device_info->device_id<1U || device_info->device_id>2U)) {
+        (!ArmPositionMpc_TargetAllowedForDevice(device_info->device_id, target_value) || device_info->device_id<1U || device_info->device_id>2U)) {
         if(device_info->device_id>=1U && device_info->device_id<=2U) {
             arm_guard_tripped[device_info->device_id]=true;
             ArmPositionMpc_Reset(&arm_position_mpc[device_info->device_id]);
@@ -1183,9 +1181,9 @@ static HAL_StatusTypeDef robstride_set_target_internal(
         if(device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS_MPC) {
             Robstride_StandardFeedback standard;
             if(!Robstride_ReadStandardFeedback(device_info,&standard) ||
-               HAL_GetTick()-standard.tick>50U || !ArmPositionMpc_TargetAllowed(standard.position))
+               HAL_GetTick()-standard.tick>50U || !ArmPositionMpc_TargetAllowedForDevice(device_info->device_id, standard.position))
                 return robstride_send_current(device_info,0.0f);
-            velocity_reference=ArmPositionMpc_Update(&arm_position_mpc[device_info->device_id],
+            velocity_reference=ArmPositionMpc_UpdateForDevice(device_info->device_id, &arm_position_mpc[device_info->device_id],
                 standard.position,velocity_for_dob,target_value,
                 device_info->ctrl_param.velocity_dob.reference_alpha,
                 device_info->ctrl_param.velocity_dob.control_period);

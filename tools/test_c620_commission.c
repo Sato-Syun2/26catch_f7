@@ -88,10 +88,10 @@ int main(int argc, char **argv) {
     assert(!service(&dev,"c620_alpha",61));
     assert(service(&dev,"c620_alpha",30));
     assert(dev.ctrl_param.velocity_dob.reference_alpha==30);
-    assert(!service(&dev,"c620_speed",201));
+    assert(!service(&dev,"c620_speed",401));
     assert(!service(&dev,"c620_speed",0));
-    assert(service(&dev,"c620_speed",200));
-    assert(dev.ctrl_param.velocity_limit_size==200);
+    assert(service(&dev,"c620_speed",400));
+    assert(dev.ctrl_param.velocity_limit_size==400);
     assert(service(&dev,"c620_speed",20));
     assert(!service(&dev,"c620_restore",175));
     assert(!service(&dev,"c620_range",100));
@@ -110,8 +110,27 @@ int main(int argc, char **argv) {
     assert(sent==(int)(C620_CALIBRATION_CURRENT_A*16384/20));
     feedback.velocity=-calibration_speed;step(&dev,2);assert(sent==0);
     feedback.velocity=0;dev.ctrl_param.pid_vel.kp=.2f;
+    if (argc > 1 && strcmp(argv[1],"calibration_fast_feedback")==0) {
+        const float velocities[] = {-31.0f,31.0f,-100.0f,100.0f};
+        for (unsigned i=0;i<sizeof(velocities)/sizeof(velocities[0]);++i) {
+            feedback.velocity=velocities[i];step(&dev,2);
+            assert(dev.ctrl_param._enable_flag && dev.ctrl_param._is_calibrating);
+            char reason[33];assert(C620_Service(&dev,"c620_fault",0,reason,sizeof(reason)));
+            assert(strcmp(reason,"fault=0")==0);
+        }
+        feedback.velocity=0;limit_switch=true;step(&dev,2);
+        assert(sent==0 && !dev.ctrl_param._is_calibrating && origin_resets==1);
+        return 0;
+    }
+    if (argc > 1 && strcmp(argv[1],"calibration_wrong_mode")==0) {
+        dev.ctrl_param.ctrl_type=ROBOMAS_CTRL_POS;step(&dev,2);
+        assert(sent==0 && !dev.ctrl_param._enable_flag);
+        char reason[33];assert(C620_Service(&dev,"c620_fault",0,reason,sizeof(reason)));
+        assert(strcmp(reason,"fault=4")==0);
+        return 0;
+    }
     if (argc > 1 && strcmp(argv[1],"overspeed")==0) {
-        feedback.velocity=-31;step(&dev,2);
+        feedback.velocity=-151;step(&dev,2);
         assert(sent==0 && !dev.ctrl_param._enable_flag);
         RoboMas_ControlEnable(&dev);assert(!dev.ctrl_param._enable_flag);return 0;
     }
@@ -196,7 +215,18 @@ int main(int argc, char **argv) {
         RoboMas_SetTarget(&dev,0);RoboMas_ControlEnable(&dev);step(&dev,2);
         assert(dev.ctrl_param._enable_flag);
         limit_switch=true;feedback.position=.1f;step(&dev,2);
-        assert(sent==0 && !dev.ctrl_param._enable_flag && C620_EnableAllowed());
+        assert(sent==0 && dev.ctrl_param._enable_flag && C620_EnableAllowed());
+        assert(dev.ctrl_param._target_valid && dev.ctrl_param._target_value==0);
+        step(&dev,100);
+        assert(sent==0 && dev.ctrl_param._enable_flag);
+        /* スイッチがまだ押されていても、位置指令だけで外向きへ復帰する。 */
+        RoboMas_SetTarget(&dev,170);
+        assert(!C620_GuardZero(&dev,&feedback));
+        assert(dev.ctrl_param._enable_flag && dev.ctrl_param._target_value==170);
+        /* 明示Disableを後続の位置指令で解除しない。 */
+        RoboMas_ControlDisable(&dev);
+        RoboMas_SetTarget(&dev,170);step(&dev,2);
+        assert(sent==0 && !dev.ctrl_param._enable_flag);
         return 0;
     }
     if (argc > 1 && strcmp(argv[1],"restore")==0) {

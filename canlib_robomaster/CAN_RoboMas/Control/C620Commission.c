@@ -11,7 +11,7 @@
 enum { UNCALIBRATED, CALIBRATING, CALIBRATED, SURVEYING, CONTACT, READY, FAULT };
 enum { NONE, CALIBRATE, SURVEY, PULSE };
 static volatile unsigned state, pending;
-/* 1開始FB、2運転FB、3時間/移動量、4校正速度/モード、6伸長範囲/モード、
+/* 1開始FB、2運転FB、3時間/移動量、4校正モード、6伸長範囲/モード、
  * 8通常範囲、9通常速度、10目標、11明示中断。リセットまで原因を保持。 */
 static volatile unsigned fault_reason;
 static volatile bool boot_calibration_consumed;
@@ -24,12 +24,12 @@ static bool origin_from_stall;
 static float start_position, stall_position;
 static float contact_position, maximum_position;
 static float current_limit = C620_RUN_CURRENT_A; /* 統合運用採用値20A。校正は別上限。 */
-static float speed_limit = 200.0f;
+static float speed_limit = C620_RUN_SPEED_MM_S;
 static float calibration_speed = 10.0f;
 static float survey_current = C620_SURVEY_CURRENT_A;
 static Id4PositionMpc mpc;
 static float mpc_output;
-/* 高速試験専用。一般運転の速度設定上限200は変更しない。 */
+/* 高速パルス試験は通常運転とは別に設定する。 */
 static unsigned pulse_phase;
 static float pulse_speed, pulse_peak, pulse_stop_x, pulse_stop_v, pulse_distance;
 static uint32_t pulse_stop_tick, pulse_stable_tick, pulse_stop_ms;
@@ -168,8 +168,8 @@ bool C620_Service(RoboMas_DeviceInfo *dev, const char *cmd, float data,
         dev->ctrl_param.velocity_dob.dob_bandwidth = data;
     } else if (strcmp(cmd, "c620_alpha") == 0 && data >= 1.0f && data <= 60.0f) {
         dev->ctrl_param.velocity_dob.reference_alpha = data;
-    } else if (strcmp(cmd, "c620_speed") == 0 && data >= 1.0f && data <= 200.0f) {
-        /* 明示された段階試験用。起動時は採用値200mm/sを使用する。 */
+    } else if (strcmp(cmd, "c620_speed") == 0 && data >= 1.0f && data <= C620_RUN_SPEED_MM_S) {
+        /* 明示された段階試験用。起動時はC620_RUN_SPEED_MM_Sを使用する。 */
         speed_limit = data;
         dev->ctrl_param.velocity_limit_size = data;
         dev->ctrl_param.velocity_dob.velocity_limit = data *
@@ -266,9 +266,8 @@ bool C620_GuardZero(RoboMas_DeviceInfo *dev, const RoboMas_FeedbackData *fb)
         }
         if (state == CALIBRATING) {
             /* 校正電流上限はC620_CALIBRATION_CURRENT_A。速度指令を0.5秒で-10へ。
-             * 速度追従を失った場合は停止し、直接1Aを流し続けない。 */
-            if (fabsf(fb->velocity) > 30.0f ||
-                dev->ctrl_param.ctrl_type != ROBOMAS_CTRL_VEL) return fault(dev, 4);
+             * 実測速度30mm/s超過による校正中の停止判定は使用しない。 */
+            if (dev->ctrl_param.ctrl_type != ROBOMAS_CTRL_VEL) return fault(dev, 4);
             if (calibration_timeout_phase != 0U ||
                 now-start_tick >= C620_CALIBRATION_TIMEOUT_MS ||
                 now-stall_tick >= C620_CALIBRATION_STALL_MS) {
@@ -350,11 +349,17 @@ bool C620_GuardZero(RoboMas_DeviceInfo *dev, const RoboMas_FeedbackData *fb)
     /* 端探索後、内側へ戻る指令は許可。端へ向かう速度/電流は停止する。 */
     const ROBOMAS_CTRL_TYPE mode = dev->ctrl_param.ctrl_type;
     const float target = dev->ctrl_param._target_value;
-    /* 原点へのMode5指令は許可するが、スイッチ接触後は押し込まない。
-     * 校正値は変更せず、READYを保持したまま停止して次の伸長指令を待つ。 */
+    /* 原点スイッチ接触中は押し込まず、この周期の電流出力だけをゼロにする。
+     * 通常の原点停止でDisableすると、後続の位置指令だけでは再始動できない。
+     * READY・Enable・有効な目標を保持し、次の伸長指令を受け付ける。
+     * 明示Disableや異常時の停止は従来どおり別経路で処理する。 */
     if (!dev->ctrl_param._startup_hold && mode == ROBOMAS_CTRL_POS_MPC && target == 0.0f &&
         HAL_GPIO_ReadPin(sensor3_GPIO_Port, sensor3_Pin)) {
-        RoboMas_ControlDisable(dev);
+        dev->ctrl_param._req_value = 0.0f;
+        C620_ResetMpc();
+        RoboMas_PID_Ctrl_init(&dev->ctrl_param.pid_pos);
+        RoboMas_PID_Ctrl_init(&dev->ctrl_param.pid_vel);
+        RoboMas_Actuator_VelocityDob_Reset(&dev->ctrl_param.velocity_dob_state);
         return true;
     }
     if ((mode == ROBOMAS_CTRL_POS || mode == ROBOMAS_CTRL_POS_AW || mode == ROBOMAS_CTRL_POS_MPC)

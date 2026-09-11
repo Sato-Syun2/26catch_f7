@@ -31,5 +31,22 @@ int main(void) {
         assert(ArmPositionMpc_Update(&s,x,v,0,0,.002f)==0 && !s.initialized);
     }
     assert(ArmPositionMpc_TargetAllowed(-145) && ArmPositionMpc_TargetAllowed(145));
+    assert(!ArmPositionMpc_TargetAllowedForDevice(1,146));
+    assert(!ArmPositionMpc_TargetAllowedForDevice(1,-146));
+    assert(ArmPositionMpc_TargetAllowedForDevice(2,720));
+    assert(ArmPositionMpc_TargetAllowedForDevice(2,-720));
+    assert(!ArmPositionMpc_TargetAllowedForDevice(2,NAN));
+    assert(!ArmPositionMpc_TargetAllowedForDevice(2,INFINITY));
+    for (int direction=-1;direction<=1;direction+=2) {
+        ArmPositionMpc s={0}; float x=direction*200.0f,v=0,target=direction*360.0f;
+        for(int i=0;i<5000;i++) {
+            float u=ArmPositionMpc_UpdateForDevice(2,&s,x,v,target,10,.002f);
+            assert(isfinite(u) && fabsf(u)<=ARM_MPC_SPEED);
+            float b=1-expf(-.02f),c=b/10;
+            x+=c*v+(.002f-c)*u;v=(1-b)*v+b*u;
+        }
+        assert(fabsf(x-target)<.1f);
+        assert(ArmPositionMpc_UpdateForDevice(2,&s,x,v,NAN,10,.002f)==0 && !s.initialized);
+    }
     puts("Arm MPC nominal plant / limits / invalid reset: PASS");
 }

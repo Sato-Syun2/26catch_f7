@@ -15,6 +15,7 @@
 #define C620_CALIBRATION_RAMP_MS 500U
 #define C620_SURVEY_CURRENT_A 7.0f
 /* 停止中の明示設定で許可する通常運転の最大電流。校正・探索は据え置き。 */
+#define C620_RUN_SPEED_MM_S 400.0f
 #define C620_RUN_CURRENT_A 20.0f
 /* 2026-09-10: 校正5A/伸長7A試験後にユーザーが機構端を確認。 */
 #define C620_CONFIRMED_END 180.145263671875f

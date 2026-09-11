@@ -12,6 +12,7 @@
 #include <CAN_Robstride_Def.h>
 #include <CAN_Robstride_System.h>
 #include <robstride_constant.h>
+#include "arm_position_tracking.h"
 
 // Variables --------------------------------
 
@@ -212,69 +213,6 @@ bool Robstride_GetPositionLimits(const Robstride_device device,
     }
 }
 
-static float robstride_wrap_position_rad(const float position,
-                                         const float min_position,
-                                         const float max_position)
-{
-    const float span = max_position - min_position;
-
-    if (!isfinite(position) || !isfinite(span) || span <= 0.0f) {
-        return NAN;
-    }
-    if ((position >= min_position) && (position <= max_position)) {
-        return position;
-    }
-
-    float wrapped = fmodf(position - min_position, span);
-    if (wrapped < 0.0f) {
-        wrapped += span;
-    }
-    return min_position + wrapped;
-}
-
-/*
- * Type 2の位置は16 bitの有限範囲で通知されるため、境界を跨ぐと
- * 最大値から最小値へ飛ぶ。前回値との差分からその周回だけを復元し、
- * 上位へ渡す位置を連続値にする。
- */
-static float robstride_unwrap_position_rad(const uint8_t device_id,
-                                           const float position,
-                                           const float min_position,
-                                           const float max_position)
-{
-    if (device_id >= 129U) {
-        return NAN;
-    }
-
-    const float span = max_position - min_position;
-    const float half_span = span * 0.5f;
-    robstride_feedback_data_raw *const raw =
-        &_robstride_feedback_data_raw_global[device_id];
-    const float wrapped = robstride_wrap_position_rad(position,
-                                                      min_position,
-                                                      max_position);
-
-    if (!isfinite(wrapped) || !isfinite(half_span) || half_span <= 0.0f) {
-        return NAN;
-    }
-
-    if (raw->_position_valid == 0U) {
-        raw->_last_position_rad = wrapped;
-        raw->_rot_num = 0;
-        raw->_position_valid = 1U;
-    } else {
-        const float delta = wrapped - raw->_last_position_rad;
-        if (delta > half_span) {
-            --raw->_rot_num;
-        } else if (delta < -half_span) {
-            ++raw->_rot_num;
-        }
-        raw->_last_position_rad = wrapped;
-    }
-
-    return wrapped + ((float)raw->_rot_num * span);
-}
-
 static void robstride_update_position(const uint8_t device_id,
                                       const float position_rad)
 {
@@ -282,20 +220,13 @@ static void robstride_update_position(const uint8_t device_id,
         return;
     }
 
-    float min_position;
-    float max_position;
-    if (!Robstride_GetPositionLimits(
-            robstride_fb_data_global[device_id].device,
-            &min_position,
-            &max_position)) {
-        return;
-    }
-
-    const float unwrapped_position = robstride_unwrap_position_rad(
-        device_id, position_rad, min_position, max_position);
-    if (!isfinite(unwrapped_position)) {
-        return;
-    }
+    robstride_feedback_data_raw *const raw =
+        &_robstride_feedback_data_raw_global[device_id];
+    const float unwrapped_position = ArmPositionTracking_Update(
+        position_rad, raw->_last_position_rad, raw->_position_valid != 0U);
+    if (!isfinite(unwrapped_position)) return;
+    raw->_last_position_rad = unwrapped_position;
+    raw->_position_valid = 1U;
 
     robstride_fb_data_global[device_id].position =
         unwrapped_position * robstride_fb_data_global[device_id].quant_per_rot *
@@ -872,7 +803,8 @@ void Robstride_WhenCANRxFifo0MsgPending(CAN_HandleTypeDef *const phcan) {
     if (HAL_CAN_GetRxMessage(phcan, CAN_RX_FIFO0, &rxHeader, rxData) != HAL_OK) {
         return;
     }
-    if (rxHeader.IDE != CAN_ID_EXT) return;
+    /* 短いフレームやRTRの未初期化データを位置として解釈しない。 */
+    if (rxHeader.IDE != CAN_ID_EXT || rxHeader.RTR != CAN_RTR_DATA || rxHeader.DLC != 8U) return;
 
     uint8_t motor_id = 0;
     uint32_t ExtId = rxHeader.ExtId;
@@ -906,7 +838,8 @@ void Robstride_WhenCANRxFifo1MsgPending(CAN_HandleTypeDef *const phcan) {
     if (HAL_CAN_GetRxMessage(phcan, CAN_RX_FIFO1, &rxHeader, rxData) != HAL_OK) {
         return;
     }
-    if (rxHeader.IDE != CAN_ID_EXT) return;
+    /* 短いフレームやRTRの未初期化データを位置として解釈しない。 */
+    if (rxHeader.IDE != CAN_ID_EXT || rxHeader.RTR != CAN_RTR_DATA || rxHeader.DLC != 8U) return;
 
     uint8_t motor_id = 0;
     uint32_t ExtId = rxHeader.ExtId;
@@ -1097,7 +1030,6 @@ void Init_Robstride_CAN_System(CAN_HandleTypeDef *const phcan) { // CAN初期化
 
     for (uint8_t i = 0; i < 129; i++) { // init fb_data_raw
         _robstride_feedback_data_raw_global[i].pos = 0;
-        _robstride_feedback_data_raw_global[i]._rot_num = 0;
         _robstride_feedback_data_raw_global[i]._last_position_rad = 0.0f;
         _robstride_feedback_data_raw_global[i]._position_valid = 0U;
         _robstride_feedback_data_raw_global[i].vel = 0;
@@ -1147,14 +1079,17 @@ Robstride_FeedbackData Get_Robstride_FeedbackData(Robstride_DeviceInfo *const de
     Robstride_RequestReadParameter(device_info, ADDR_MECH_POS);
     Robstride_RequestReadParameter(device_info, ADDR_MECH_VEL);
     Robstride_RequestReadParameter(device_info, ADDR_IQF);
-    uint8_t device_id = device_info->device_id;
-    robstride_fb_data_global[device_id].device_id = device_id;
-    return robstride_fb_data_global[device_id];
+    return Read_Robstride_FeedbackData(device_info);
 }
 Robstride_FeedbackData Read_Robstride_FeedbackData(Robstride_DeviceInfo *const device_info) {
-    uint8_t device_id = device_info->device_id;
-    robstride_fb_data_global[device_id].device_id = device_id;
-    return robstride_fb_data_global[device_id];
+    if (!device_info || device_info->device_id >= 129U) return (Robstride_FeedbackData){0};
+    const uint32_t mask = __get_PRIMASK();
+    __disable_irq();
+    /* CAN割り込みによる更新途中の位置・速度・状態を混在させない。 */
+    Robstride_FeedbackData feedback = robstride_fb_data_global[device_info->device_id];
+    __set_PRIMASK(mask);
+    feedback.device_id = device_info->device_id;
+    return feedback;
 }
 
 bool Robstride_ReadMeasuredPosition(const Robstride_DeviceInfo *device, float *position, uint32_t *tick)
@@ -1184,7 +1119,6 @@ void Robstride_ResetPositionTracking(Robstride_DeviceInfo *const device_info)
 
     const uint32_t primask = __get_PRIMASK();
     __disable_irq();
-    _robstride_feedback_data_raw_global[device_info->device_id]._rot_num = 0;
     _robstride_feedback_data_raw_global[device_info->device_id]._last_position_rad = 0.0f;
     _robstride_feedback_data_raw_global[device_info->device_id]._position_valid = 0U;
     __set_PRIMASK(primask);
@@ -1325,16 +1259,15 @@ void Robstride_ProcessParameter(const uint8_t rxData[], const uint8_t device_id)
         case ADDR_MECH_POS:
             if (device_id==1U || device_id==2U) ++robstride_rate_counters.position_rx[device_id-1U];
             memcpy(&float_data, &rxData[4], sizeof(float_data));
-            /* Enable中の制御位置は同一Type2フレームを使う。
-             * 遅着Type17で位置やアンラップ基準を巻き戻さない。 */
-            if (robstride_fb_data_global[device_id].mode_status != ROBSTRIDE_STATE_ENABLE)
+            if (!isfinite(float_data)) break;
+            /* Enable中の遅着Type17は両方の位置キャッシュを更新しない。
+             * Disable中はType2と共通の周回追跡を通した位置だけ公開する。 */
+            if (robstride_fb_data_global[device_id].mode_status != ROBSTRIDE_STATE_ENABLE) {
                 robstride_update_position(device_id, float_data);
-            arm_measured_position[device_id] = float_data *
-                robstride_fb_data_global[device_id].quant_per_rot *
-                robstride_fb_data_global[device_id].plus_minus +
-                robstride_fb_data_global[device_id].offset_pos;
-            arm_position_tick[device_id] = HAL_GetTick();
-            arm_position_valid[device_id] = true;
+                arm_measured_position[device_id] = robstride_fb_data_global[device_id].position;
+                arm_position_tick[device_id] = HAL_GetTick();
+                arm_position_valid[device_id] = true;
+            }
             // printf("motor%d: pos %f\n\r", (int)device_id, robstride_fb_data_global[device_id].position);
             _robstride_feedback_data_raw_global[device_id]._get_counter += 1;
             if (_robstride_feedback_data_raw_global[device_id]._get_counter > 128) {

@@ -141,8 +141,7 @@ typedef struct Robstride_FeedbackData {
 
 typedef struct robstride_feedback_data_raw {
     uint8_t _get_counter; // dataを受け取った回数 (offset計算用, max:128)
-    int64_t _rot_num;     // 回転数
-    float _last_position_rad;
+    float _last_position_rad; // Type2/Type17共通の連続機械角
     uint8_t _position_valid;
     uint16_t pos;
     uint16_t vel;

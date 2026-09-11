@@ -58,6 +58,10 @@
 #define MICROROS_FEEDBACK_PERIOD_MS   10U
 #define MICROROS_COMMAND_NOMINAL_HZ   500U
 #define MICROROS_DIAGNOSTIC_PERIOD_MS 1000U
+/* Reliable応答のACK待ちで100msのモーター指令監視を止めない。 */
+#define MICROROS_SERVICE_ACK_TIMEOUT_MS 10
+_Static_assert(MICROROS_SERVICE_ACK_TIMEOUT_MS < MICROROS_COMMAND_TIMEOUT_MS,
+               "service ACK wait must be shorter than motor watchdog");
 
 /* UrosF7Param.mode の共通値。速度系の拡張モードもサービスから選択できる。 */
 #define MICROROS_MODE_POSITION        0U
@@ -191,8 +195,7 @@ static void reset_robstride_command_watchdog(uint32_t index);
 static void reset_robomas_command_watchdog(uint32_t index);
 static bool enable_robstride_for_command(uint32_t index, uint32_t generation);
 static void microros_delay(uint32_t milliseconds);
-static bool command_watchdog_expired(const volatile uint32_t *last_tick,
-                                     uint32_t now);
+static bool command_watchdog_expired(const volatile uint32_t *last_tick);
 static bool robstride_timeout_mode(ROBSTRIDE_CTRL_TYPE ctrl_type);
 static bool robomas_timeout_mode(ROBOMAS_CTRL_TYPE ctrl_type);
 
@@ -231,8 +234,7 @@ static void end_control_transaction(void)
   __set_PRIMASK(primask);
 }
 
-static bool command_watchdog_expired(const volatile uint32_t *last_tick,
-                                     const uint32_t now)
+static bool command_watchdog_expired(const volatile uint32_t *last_tick)
 {
   const uint32_t primask = __get_PRIMASK();
   uint32_t previous_tick;
@@ -241,6 +243,9 @@ static bool command_watchdog_expired(const volatile uint32_t *last_tick,
   __disable_irq();
   initialized = microros_command_watchdog_initialized;
   previous_tick = *last_tick;
+  /* 受信時刻と現在時刻を同じ区間で取得する。呼出側の古いnowを使うと、
+   * 新着指令の時刻との差がunsignedで桁あふれし、即時タイムアウトになる。 */
+  const uint32_t now = HAL_GetTick();
   __set_PRIMASK(primask);
 
   return initialized &&
@@ -308,20 +313,18 @@ static bool enable_robstride_for_command(const uint32_t index, const uint32_t ge
   return enabled != 0U;
 }
 
+/* 位置制御は最後の目標を保持する。ROS指令欠落ではDisableしない。
+ * 速度・電流制御のみ指令タイムアウトを監視する。 */
 static bool robstride_timeout_mode(const ROBSTRIDE_CTRL_TYPE ctrl_type)
 {
   return ctrl_type == ROBSTRIDE_CTRL_VEL ||
          ctrl_type == ROBSTRIDE_CTRL_VEL_DOB ||
-         ctrl_type == ROBSTRIDE_CTRL_POS_MPC ||
          ctrl_type == ROBSTRIDE_CTRL_CURRENT;
 }
 
 static bool robomas_timeout_mode(const ROBOMAS_CTRL_TYPE ctrl_type)
 {
-  return ctrl_type == ROBOMAS_CTRL_POS ||
-         ctrl_type == ROBOMAS_CTRL_POS_AW ||
-         ctrl_type == ROBOMAS_CTRL_POS_MPC ||
-         ctrl_type == ROBOMAS_CTRL_VEL ||
+  return ctrl_type == ROBOMAS_CTRL_VEL ||
          ctrl_type == ROBOMAS_CTRL_VEL_DOB ||
          ctrl_type == ROBOMAS_CTRL_CURRENT;
 }
@@ -1078,7 +1081,7 @@ void MicroRos_ApplyPendingRobstrideCommands(void)
       const float first_target = robstride_command_target_value(device, &command);
       if (!isfinite(first_target) ||
           (position_mode &&
-           !ArmPositionMpc_TargetAllowed(first_target))) {
+           !ArmPositionMpc_TargetAllowedForDevice(device->device_id, first_target))) {
         continue;
       }
 
@@ -1185,7 +1188,6 @@ void MicroRos_RefreshRobstrideTargets(void)
 
 void MicroRos_CheckRobstrideCommandTimeout(void)
 {
-  const uint32_t now = HAL_GetTick();
 
   for (uint32_t i = 0U; i < ROBSTRIDE_DEVICE_COUNT; ++i) {
     Robstride_DeviceInfo *const device = &robstride_dev_info_global[i];
@@ -1193,7 +1195,7 @@ void MicroRos_CheckRobstrideCommandTimeout(void)
     if (!device->ctrl_param.ros_topic_timeout_enable ||
         device->ctrl_param._enable_flag == 0U ||
         !robstride_timeout_mode(device->ctrl_param.ctrl_type) ||
-        !command_watchdog_expired(&robstride_command_last_tick[i], now)) {
+        !command_watchdog_expired(&robstride_command_last_tick[i])) {
       continue;
     }
 
@@ -1205,7 +1207,7 @@ void MicroRos_CheckRobstrideCommandTimeout(void)
     if (device->ctrl_param.ros_topic_timeout_enable &&
         device->ctrl_param._enable_flag != 0U &&
         robstride_timeout_mode(device->ctrl_param.ctrl_type) &&
-        command_watchdog_expired(&robstride_command_last_tick[i], now)) {
+        command_watchdog_expired(&robstride_command_last_tick[i])) {
       invalidate_robstride_command(device);
       printf("[micro-ROS] Robstride ID %u command timeout; disabled\r\n",
              (unsigned int)device->device_id);
@@ -1218,7 +1220,6 @@ void MicroRos_CheckRobstrideCommandTimeout(void)
 
 void MicroRos_CheckRobomasCommandTimeout(void)
 {
-  const uint32_t now = HAL_GetTick();
 
   for (uint32_t i = 0U; i < ROBOMAS_DEVICE_COUNT; ++i) {
     RoboMas_DeviceInfo *const device = &robomas_dev_info_global[i];
@@ -1227,7 +1228,7 @@ void MicroRos_CheckRobomasCommandTimeout(void)
         device->ctrl_param._enable_flag == 0U ||
         device->ctrl_param._is_calibrating ||
         !robomas_timeout_mode(device->ctrl_param.ctrl_type) ||
-        !command_watchdog_expired(&robomas_command_last_tick[i], now)) {
+        !command_watchdog_expired(&robomas_command_last_tick[i])) {
       continue;
     }
 
@@ -1240,7 +1241,7 @@ void MicroRos_CheckRobomasCommandTimeout(void)
         device->ctrl_param._enable_flag != 0U &&
         !device->ctrl_param._is_calibrating &&
         robomas_timeout_mode(device->ctrl_param.ctrl_type) &&
-        command_watchdog_expired(&robomas_command_last_tick[i], now)) {
+        command_watchdog_expired(&robomas_command_last_tick[i])) {
       if (device->device_id == 4U &&
           device->ctrl_param.ctrl_type == ROBOMAS_CTRL_VEL_DOB) {
         /* 新しい指令が来ても減速ラッチは停止完了まで解除しない。 */
@@ -1293,6 +1294,23 @@ void MicroRos_ReportDiagnostics(void)
   ++arm_rate_log.count;
   arm_rate_loops=0U; arm_rate_loop_gap=0U;
 
+  /* UART送信は1文字ごとに待つため、500Hz制御タスクでは実行しない。 */
+}
+
+static void print_control_diagnostics(void)
+{
+  static uint32_t printed_count;
+  const uint32_t mask = __get_PRIMASK();
+  __disable_irq();
+  const uint32_t count = arm_rate_log.count;
+  if (count == printed_count) {__set_PRIMASK(mask); return;}
+  const ArmRateSample sample = arm_rate_log.samples[(count - 1U) % 120U];
+  printed_count = count;
+  __set_PRIMASK(mask);
+  const uint32_t received = sample.received, coalesced = sample.coalesced;
+  const uint32_t ring_overrun = sample.ring_overrun, priority_queue_full = sample.priority_full;
+  const uint32_t tx_errors = sample.tx_errors, can_errors = sample.can_errors;
+  const uint32_t can_error_code = sample.can_error_code;
   if (received > MICROROS_COMMAND_NOMINAL_HZ || coalesced > 0U) {
     printf("Warning: uros_f7_command overload: %lu callbacks/s, "
            "coalesced=%lu; latest-value control continues\r\n",
@@ -1398,7 +1416,11 @@ static void set_robomas_feedback(
     uint32_t index)
 {
   const RoboMas_DeviceInfo *device = &robomas_dev_info_global[index];
-  const RoboMas_FeedbackData *feedback = &robomas_fb[index];
+  const uint32_t mask = __get_PRIMASK();
+  __disable_irq();
+  const RoboMas_FeedbackData snapshot = robomas_fb[index];
+  __set_PRIMASK(mask);
+  const RoboMas_FeedbackData *feedback = &snapshot;
 
   output->info.type = catch26_interface__msg__DeviceInfo__TYPE_ROBOMASTER;
   output->info.id = device->device_id;
@@ -1560,6 +1582,22 @@ static void reset_command_state(void)
   __set_PRIMASK(primask);
 }
 
+/* 通信の一時的な欠落は許容し、Agent再起動で失われたセッションは作り直す。
+ * pingもexecutorと同じタスクで実行し、transportへの同時アクセスを避ける。 */
+static bool agent_session_lost(uint32_t *last_check, uint8_t *failures)
+{
+  const uint32_t now = HAL_GetTick();
+  if ((uint32_t)(now - *last_check) < 1000U) {
+    return false;
+  }
+  *last_check = now;
+  if (rmw_uros_ping_agent(10, 1) == RMW_RET_OK) {
+    *failures = 0U;
+    return false;
+  }
+  return ++(*failures) >= 3U;
+}
+
 void MicroRosTask_Run(void)
 {
   printf("Start Micro-ROS Task\r\n");
@@ -1620,7 +1658,10 @@ void MicroRosTask_Run(void)
 
     rmw_qos_profile_t command_qos = rmw_qos_profile_default;
     command_qos.history = RMW_QOS_POLICY_HISTORY_KEEP_LAST;
-    command_qos.depth = 1U;
+    /* 各送信元は別モーターの部分指令を送る。depth=1ではShoot/Transfer/XYが
+     * 同じ受信周期に届いた際、最後の一件以外が消えwatchdogが誤作動する。
+     * 静的ライブラリが確保済みの全履歴を使い、軸別の最新値化はcallbackで行う。 */
+    command_qos.depth = RMW_UXRCE_MAX_HISTORY;
     command_qos.reliability = RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT;
     command_qos.durability = RMW_QOS_POLICY_DURABILITY_VOLATILE;
     RCCHECK(rclc_subscription_init(
@@ -1637,6 +1678,12 @@ void MicroRosTask_Run(void)
         &node,
         ROSIDL_GET_SRV_TYPE_SUPPORT(catch26_interface, srv, UrosF7Param),
         MICROROS_PARAMETER_SERVICE));
+    /* 既定の1000ms待ちは同じexecutor上の指令受信/feedbackを停止する。
+     * Reliable QoSは維持し、同期ACK待ちだけを制御周期内に制限する。
+     * 未確認の応答はXRCEのReliableストリームに残り、後続spinで処理する。 */
+    RCCHECK(rmw_uros_set_service_session_timeout(
+        rcl_service_get_rmw_handle(&parameter_service),
+        MICROROS_SERVICE_ACK_TIMEOUT_MS));
     RCCHECK(rclc_executor_add_service(
         &executor,
         &parameter_service,
@@ -1662,6 +1709,8 @@ void MicroRosTask_Run(void)
         &feedback_timer_callback));
     RCCHECK(rclc_executor_add_timer(&executor, &feedback_timer));
     printf("micro-ROS initialized\r\n");
+    uint32_t last_agent_check = HAL_GetTick();
+    uint8_t agent_ping_failures = 0U;
 
     for (;;) {
       const rcl_ret_t spin_result =
@@ -1671,9 +1720,17 @@ void MicroRosTask_Run(void)
         rcl_reset_error();
         break;
       }
+      if (agent_session_lost(&last_agent_check, &agent_ping_failures)) {
+        printf("micro-ROS agent session lost; reconnecting\r\n");
+        break;
+      }
+      print_control_diagnostics();
       osDelay(1U);
     }
 
+    /* 消失したAgentからの破棄ACKを待たず、既存リソースを解放する。 */
+    (void)rmw_uros_set_context_entity_destroy_session_timeout(
+        rcl_context_get_rmw_context(&support.context), 0);
     RCCHECK(rclc_executor_fini(&executor));
     RCCHECK(rcl_timer_fini(&feedback_timer));
     RCCHECK(rcl_service_fini(&parameter_service, &node));

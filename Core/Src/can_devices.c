@@ -5,6 +5,7 @@
 
 #include "CAN_Robstride_Def.h"
 #include "robstride_constant.h"
+#include "Control/C620Commission.h"
 
 /*
  * The CAN devices are prepared before the scheduler starts.  The blocking
@@ -232,8 +233,9 @@ static void configure_c610_2(void)
     ctrl->rotation = ROBOMAS_ROT_ACW;
     ctrl->use_internal_offset = ROBOMAS_USE_OFFSET_POS_CALIB;
     ctrl->quant_per_rot = 31.0f * 3.14159265359f / 36.0f * 2.0f;
-    ctrl->current_limit_size = 2.0f;
-    ctrl->velocity_limit_size = 10.0f;
+    ctrl->current_limit_size = 5.0f; /* Transfer C610 ID1の電流上限は5A。 */
+    ctrl->velocity_limit = ROBOMAS_LIMIT_ENABLE;
+    ctrl->velocity_limit_size = 250.0f; /* Transfer C610 ID1の速度制限を有効化。 */
     ctrl->pid_vel.kp = 2.0f;
     ctrl->pid_vel.ki = 4.0f;
     ctrl->pid_vel.kd = 0.0f;
@@ -267,7 +269,7 @@ static void configure_c620_1(void)
     ctrl->quant_per_rot = 125.0f / 36.0f * 2.0f;
     ctrl->current_limit_size = 20.0f;
     ctrl->velocity_limit = ROBOMAS_LIMIT_ENABLE;
-    ctrl->velocity_limit_size = 200.0f;
+    ctrl->velocity_limit_size = C620_RUN_SPEED_MM_S; /* MPC速度上限 [mm/s]。 */
     ctrl->pid_vel.kp = 0.2f;
     ctrl->pid_vel.ki = 0.4f;
     ctrl->pid_vel.kd = 0.0f;

@@ -8,10 +8,10 @@
 #include "CAN_Robstride.h"
 #include "CAN_Main.h"
 
-/* 統合構成: CAN3にRobstride 2台、CAN2にC610 2台とC620 ID3。 */
+/* CAN3にRobstride 2台、CAN2にC610 2台。C620 ID3は未接続運用。 */
 #define ROBSTRIDE_DEVICE_COUNT 2U
 #define ROBOMAS_C610_COUNT 2U
-#define ROBOMAS_C620_COUNT 1U
+#define ROBOMAS_C620_COUNT 0U /* ID3の登録・校正・制御・接続待ちを無効化。 */
 #define ROBOMAS_DEVICE_COUNT (ROBOMAS_C610_COUNT + ROBOMAS_C620_COUNT)
 
 /*

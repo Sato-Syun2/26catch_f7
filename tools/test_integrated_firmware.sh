@@ -19,7 +19,7 @@ done
 "$cc" -std=c11 -O2 "${includes[@]}" tools/test_c620_commission.c "${sources[@]}" -lm -o "$test_dir/pressed_boot_hold"
 "$test_dir/pressed_boot_hold" boot_pressed
 "$test_dir/pressed_boot_hold" timeout
-for scenario in boot boot_pressed boot_cancel normal cancel overspeed no_stall stale timeout timeout_moving timeout_stale timeout_nan timeout_cancel survey5 survey_speed survey_stale survey_timeout restore mpc_zero slow_calibration pulse400 pulse800 pulse_stale pulse_cancel pulse_bounds pulse_time pulse_timeout; do
+for scenario in boot boot_pressed boot_cancel normal cancel calibration_fast_feedback calibration_wrong_mode overspeed no_stall stale timeout timeout_moving timeout_stale timeout_nan timeout_cancel survey5 survey_speed survey_stale survey_timeout restore mpc_zero slow_calibration pulse400 pulse800 pulse_stale pulse_cancel pulse_bounds pulse_time pulse_timeout; do
   "$test_dir/c620_commission" "$scenario"
   printf 'PASS: C620 %s\n' "$scenario"
 done
@@ -37,6 +37,8 @@ run_test id4_velocity_safety
 run_test control_period
 run_test command_auto_enable
 run_test arm_position_mpc "$arm/ArmPositionMpc.c"
+run_test arm_position_tracking "$arm/ArmPositionMpc.c"
+run_test arm_feedback_guard
 run_test arm_velocity_estimate
 run_test arm_velocity_dob "$arm/Actuator_VelocityDob.c"
 printf 'All host tests passed. Binaries: %s\n' "$test_dir"

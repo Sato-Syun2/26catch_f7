@@ -10,9 +10,16 @@ void ArmPositionMpc_Reset(ArmPositionMpc *s) { if(s) memset(s,0,sizeof(*s)); }
 bool ArmPositionMpc_TargetAllowed(float target) {
     return isfinite(target) && target>=ARM_TEST_POSITION_MIN_DEG && target<=ARM_TEST_POSITION_MAX_DEG;
 }
+/* ID2は角度制限なし。非有限値、速度・電流制限は引き続き検査する。 */
+bool ArmPositionMpc_TargetAllowedForDevice(uint8_t id, float target) {
+    return id == 2U ? isfinite(target) : ArmPositionMpc_TargetAllowed(target);
+}
 float ArmPositionMpc_Update(ArmPositionMpc *s,float x,float v,float target,float alpha,float dt) {
+    return ArmPositionMpc_UpdateForDevice(1U,s,x,v,target,alpha,dt);
+}
+float ArmPositionMpc_UpdateForDevice(uint8_t id, ArmPositionMpc *s,float x,float v,float target,float alpha,float dt) {
     if(!s) return 0;
-    if(!ArmPositionMpc_TargetAllowed(target)||!ArmPositionMpc_TargetAllowed(x)||
+    if(!ArmPositionMpc_TargetAllowedForDevice(id,target)||!ArmPositionMpc_TargetAllowedForDevice(id,x)||
        !isfinite(v)||!isfinite(alpha)||alpha<=0||!isfinite(dt)||dt<=0||dt>.05f) {
         ArmPositionMpc_Reset(s); return 0;
     }
@@ -39,7 +46,7 @@ float ArmPositionMpc_Update(ArmPositionMpc *s,float x,float v,float target,float
         v=s->observer_velocity;
         if(fabsf(target-x)<2 && fabsf(v)<10)
             s->bias=clip(s->bias+.3f*(target-x)*ARM_MPC_PERIOD,.5f);
-        float goal=fmaxf(ARM_TEST_POSITION_MIN_DEG,fminf(ARM_TEST_POSITION_MAX_DEG,target+s->bias));
+        float goal=id == 2U ? target+s->bias : fmaxf(ARM_TEST_POSITION_MIN_DEG,fminf(ARM_TEST_POSITION_MAX_DEG,target+s->bias));
         float wx=x,wv=v;
         for(int k=0;k<ARM_MPC_N;k++) {
             s->u[k]=clip(6*(goal-wx)-wv,ARM_MPC_SPEED);
@@ -63,6 +70,7 @@ float ArmPositionMpc_Update(ArmPositionMpc *s,float x,float v,float target,float
     }
     /* 毎2ms更新する端接近時の速度包絡。既存の範囲/FB鮮度ラッチも維持。
      * 実機の制動距離保証ではなく、初期試験の追加抑制。 */
+    if (id == 2U) return clip(s->reference,ARM_MPC_SPEED);
     const float upper=fminf(ARM_MPC_SPEED,(ARM_TEST_POSITION_MAX_DEG-x)/(1/alpha+.15f));
     const float lower=fminf(ARM_MPC_SPEED,(x-ARM_TEST_POSITION_MIN_DEG)/(1/alpha+.15f));
     return fmaxf(-lower,fminf(upper,s->reference));
