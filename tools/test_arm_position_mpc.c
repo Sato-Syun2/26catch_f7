@@ -30,6 +30,25 @@ int main(void) {
         assert(ArmPositionMpc_Update(&s,x,v,146,10,.002f)==0 && !s.initialized);
         assert(ArmPositionMpc_Update(&s,x,v,0,0,.002f)==0 && !s.initialized);
     }
+    /* 範囲超過や不正指令の後でも、次の正常指令で内側へ戻れる。 */
+    for (int direction=-1; direction<=1; direction+=2) {
+        ArmPositionMpc s={0};
+        float x=direction*146.0f, v=0, target=direction*130.0f;
+        assert(ArmPositionMpc_Update(&s,x,v,direction*150.0f,10,.002f)==0);
+        for (int i=0; i<5000; ++i) {
+            const float u=ArmPositionMpc_Update(&s,x,v,target,10,.002f);
+            assert(isfinite(u) && fabsf(u)<=ARM_MPC_SPEED);
+            if (fabsf(x)>145) assert(direction*u<=0);
+            const float b=1-expf(-.02f),c=b/10;
+            x+=c*v+(.002f-c)*u;v=(1-b)*v+b*u;
+        }
+        assert(fabsf(x-target)<.1f);
+        assert(ArmPositionMpc_Update(&s,NAN,0,0,10,.002f)==0);
+        assert(ArmPositionMpc_Update(&s,0,0,0,10,.002f)==0);
+        assert(s.initialized);
+        const float far_u=ArmPositionMpc_Update(&s,direction*10000.0f,0,0,10,.002f);
+        assert(fabsf(far_u)<=ARM_MPC_SPEED && direction*far_u<=0);
+    }
     assert(ArmPositionMpc_TargetAllowed(-145) && ArmPositionMpc_TargetAllowed(145));
     assert(!ArmPositionMpc_TargetAllowedForDevice(1,146));
     assert(!ArmPositionMpc_TargetAllowedForDevice(1,-146));

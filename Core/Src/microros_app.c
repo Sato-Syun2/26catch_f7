@@ -292,6 +292,20 @@ static bool enable_robstride_for_command(const uint32_t index, const uint32_t ge
   if (device->ctrl_param._enable_flag != 0U) {
     return true;
   }
+  /* ログだけを間引く。正常状態へ戻った新着指令のEnableは遅延させない。 */
+  static uint32_t last_report[ROBSTRIDE_DEVICE_STORAGE_COUNT];
+  static bool reported[ROBSTRIDE_DEVICE_STORAGE_COUNT];
+  const uint32_t now = HAL_GetTick();
+  const char *blocked = Robstride_EnableBlockedReason(device);
+  if (blocked) {
+    if (!reported[index] || (uint32_t)(now-last_report[index]) >= 1000U) {
+      printf("[micro-ROS] Robstride ID %u auto-enable blocked: %s\r\n",
+             (unsigned)device->device_id, blocked);
+      last_report[index] = now;
+      reported[index] = true;
+    }
+    return false;
+  }
   if (!begin_control_transaction()) {
     return false;
   }
@@ -310,6 +324,7 @@ static bool enable_robstride_for_command(const uint32_t index, const uint32_t ge
          (unsigned int)device->device_id,
          (unsigned int)enabled);
   end_control_transaction();
+  if (enabled) reported[index] = false;
   return enabled != 0U;
 }
 
@@ -756,7 +771,8 @@ static void parameter_service_callback(const void *request_msg,
           enabling ? Robstride_ControlEnable(device, microros_delay)
                    : Robstride_ControlDisable(device, microros_delay);
       if (!control_ok) {
-        operation_error = enabling ? "enable timeout" : "disable timeout";
+        operation_error = enabling ? Robstride_EnableBlockedReason(device) : NULL;
+        if (!operation_error) operation_error = enabling ? "enable timeout" : "disable timeout";
       }
     }
   } else {
@@ -1084,6 +1100,11 @@ void MicroRos_ApplyPendingRobstrideCommands(void)
            !ArmPositionMpc_TargetAllowedForDevice(device->device_id, first_target))) {
         continue;
       }
+
+      /* 再通電などで実機だけ停止した場合も、SWのEnable履歴を信じ続けない。 */
+      const Robstride_FeedbackData actual = Read_Robstride_FeedbackData(device);
+      if (position_mode && actual.get_flag && actual.mode_status == ROBSTRIDE_STATE_DISABLE)
+        device->ctrl_param._enable_flag = 0U;
 
       /* 有効な指令の到着を記録。位置モードは初回以外も再Enableする。 */
       if (waiting_for_first_command) {

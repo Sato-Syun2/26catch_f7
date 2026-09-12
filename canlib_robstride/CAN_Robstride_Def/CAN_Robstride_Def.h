@@ -74,7 +74,6 @@ typedef struct {
     uint8_t _enable_flag;
     /* モーター側のrun_mode書き込みを読み返し確認できたか。 */
     uint8_t _mode_configured;
-    uint8_t _position_guard_latched;
     /* Enable/Disableやモード変更で無効化されたROS指令の世代。 */
     volatile uint32_t _target_generation;
     /* 前回採用した位置目標。境界付近で候補の周回が反転しないように使う。 */

@@ -23,7 +23,6 @@
 #define ROBSTRIDE_POSITION_HALF_TURN_RAD  (3.14159265358979323846f)
 #define ROBSTRIDE_POSITION_STEP_TOLERANCE_RAD (0.02f)
 
-static bool arm_guard_tripped[3];
 static bool arm_current_config_ok[3];
 static ArmVelocityEstimate arm_velocity_estimate[3];
 static ArmPositionMpc arm_position_mpc[3];
@@ -52,6 +51,13 @@ void Robstride_FastLogIdleProbe(void)
     __DMB();
     arm_fast_log.count=count+1U;
 }
+/* MPCでは実測が範囲外でも正常目標へ戻せる。目標範囲と速度包絡はMPCで検査。 */
+static bool arm_feedback_allowed(const Robstride_DeviceInfo *device, float position)
+{
+    return device->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS_MPC
+        ? isfinite(position) : ArmPositionMpc_TargetAllowedForDevice(device->device_id, position);
+}
+
 bool Robstride_ArmGuardCheck(Robstride_DeviceInfo *device)
 {
     if (!device) return false;
@@ -61,8 +67,27 @@ bool Robstride_ArmGuardCheck(Robstride_DeviceInfo *device)
     uint32_t tick = 0U;
     const bool measured = Robstride_ReadMeasuredPosition(device, &position, &tick);
     return ArmFeedbackGuard_Check(measured, (uint32_t)(HAL_GetTick() - tick),
-        measured && ArmPositionMpc_TargetAllowedForDevice(id, position),
-        device->ctrl_param._enable_flag != 0U, &arm_guard_tripped[id]);
+        measured && arm_feedback_allowed(device, position),
+        device->ctrl_param._enable_flag != 0U);
+}
+
+/* 通信タイムアウトと、現在状態によるEnable拒否を区別して上位へ返す。 */
+const char *Robstride_EnableBlockedReason(Robstride_DeviceInfo *device)
+{
+    if (!device) return "invalid motor";
+    const uint8_t id = device->device_id;
+    if (id != 1U && id != 2U) return NULL;
+    float position = 0.0f;
+    uint32_t tick = 0U;
+    const bool measured = Robstride_ReadMeasuredPosition(device, &position, &tick);
+    if (!ArmFeedbackGuard_Check(measured, HAL_GetTick()-tick,
+            measured && arm_feedback_allowed(device, position),
+            device->ctrl_param._enable_flag != 0U)) {
+        if (!measured || HAL_GetTick()-tick > 50U) return "arm feedback stale";
+        return "arm position out of range";
+    }
+    if (!arm_current_config_ok[id]) return "current parameter verify failed";
+    return NULL;
 }
 
 // Private Function Prototypes --------------------------------
@@ -149,7 +174,6 @@ static void Robstride_Ctrl_Struct_init(Robstride_Ctrl_StructTypedef *const ctrl_
     ctrl_struct->_mode_configured = 0U;
     ctrl_struct->_target_value = 0.0f;            // 目標値の初期値
     ctrl_struct->_enable_flag = 0;                // 有効フラグの初期値 (無効)
-    ctrl_struct->_position_guard_latched = 0U;
     ctrl_struct->_target_generation = 0U;
     ctrl_struct->_position_target_wire = 0.0f;
     ctrl_struct->_position_target_valid = 0U;
@@ -341,8 +365,7 @@ static bool robstride_feedback_position_out_of_range(
 static void robstride_trip_position_guard(
     Robstride_DeviceInfo *const device_info)
 {
-    if ((device_info->ctrl_param.ctrl_type != ROBSTRIDE_CTRL_POS) ||
-        (device_info->ctrl_param._position_guard_latched != 0U)) {
+    if (device_info->ctrl_param.ctrl_type != ROBSTRIDE_CTRL_POS) {
         return;
     }
 
@@ -361,7 +384,6 @@ static void robstride_trip_position_guard(
                                       data,
                                       sizeof(data));
     Robstride_EndPriorityTransaction(device_info->phcan);
-    device_info->ctrl_param._position_guard_latched = 1U;
     device_info->ctrl_param._enable_flag = 0U;
     device_info->ctrl_param._position_target_valid = 0U;
     Robstride_InvalidateTargetGeneration(device_info);
@@ -383,7 +405,6 @@ static bool robstride_target_parameter(const Robstride_DeviceInfo *const device_
         case ROBSTRIDE_CTRL_POS:
             if ((device_info->device_id == 1U || device_info->device_id == 2U) &&
                 !ArmPositionMpc_TargetAllowedForDevice(device_info->device_id, value)) {
-                arm_guard_tripped[device_info->device_id] = true;
                 return false;
             }
             *address = (uint16_t)ADDR_LOC_REF;
@@ -1133,7 +1154,6 @@ static HAL_StatusTypeDef robstride_set_target_internal(
     if (device_info && device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS_MPC &&
         (!ArmPositionMpc_TargetAllowedForDevice(device_info->device_id, target_value) || device_info->device_id<1U || device_info->device_id>2U)) {
         if(device_info->device_id>=1U && device_info->device_id<=2U) {
-            arm_guard_tripped[device_info->device_id]=true;
             ArmPositionMpc_Reset(&arm_position_mpc[device_info->device_id]);
         }
         return robstride_send_current(device_info,0.0f);
@@ -1181,7 +1201,7 @@ static HAL_StatusTypeDef robstride_set_target_internal(
         if(device_info->ctrl_param.ctrl_type == ROBSTRIDE_CTRL_POS_MPC) {
             Robstride_StandardFeedback standard;
             if(!Robstride_ReadStandardFeedback(device_info,&standard) ||
-               HAL_GetTick()-standard.tick>50U || !ArmPositionMpc_TargetAllowedForDevice(device_info->device_id, standard.position))
+               HAL_GetTick()-standard.tick>50U || !isfinite(standard.position))
                 return robstride_send_current(device_info,0.0f);
             velocity_reference=ArmPositionMpc_UpdateForDevice(device_info->device_id, &arm_position_mpc[device_info->device_id],
                 standard.position,velocity_for_dob,target_value,
@@ -1425,12 +1445,14 @@ uint8_t Robstride_ControlEnable(Robstride_DeviceInfo *const dev_info, DelayFunct
     if (dev_info == NULL || f_delay == NULL) {
         return 0U;
     }
-    if (!Robstride_ArmGuardCheck(dev_info)) {
-        printf("[ArmGuard] ID %u enable blocked: range/stale/latch\r\n", dev_info->device_id);
-        return 0U;
-    }
-    if ((dev_info->device_id==1U || dev_info->device_id==2U) && !arm_current_config_ok[dev_info->device_id]) {
-        printf("[CurrentTune] ID %u enable blocked: current parameter verify failed\r\n",dev_info->device_id);
+    const char *blocked = Robstride_EnableBlockedReason(dev_info);
+    if (blocked) {
+        float position = 0.0f;
+        uint32_t tick = 0U;
+        const bool valid = Robstride_ReadMeasuredPosition(dev_info, &position, &tick);
+        printf("[ArmGuard] ID %u enable blocked: %s position=%.3f valid=%u age_ms=%lu\r\n",
+               dev_info->device_id, blocked, (double)position, (unsigned)valid,
+               (unsigned long)(HAL_GetTick()-tick));
         return 0U;
     }
     if (dev_info->ctrl_param._mode_configured == 0U) {
@@ -1479,7 +1501,6 @@ uint8_t Robstride_ControlEnable(Robstride_DeviceInfo *const dev_info, DelayFunct
         ROBSTRIDE_STATE_ENABLE,
         f_delay);
     dev_info->ctrl_param._enable_flag = (success != 0U) ? 1U : 0U;
-    if (success != 0U) dev_info->ctrl_param._position_guard_latched = 0U;
     {
         const Robstride_FeedbackData feedback = Read_Robstride_FeedbackData(dev_info);
         printf("[Robstride] ID %u Enable result=%u sw=%u feedback=%u mode=%u run_mode=%u\r\n",

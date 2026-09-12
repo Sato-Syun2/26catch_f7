@@ -19,7 +19,7 @@ float ArmPositionMpc_Update(ArmPositionMpc *s,float x,float v,float target,float
 }
 float ArmPositionMpc_UpdateForDevice(uint8_t id, ArmPositionMpc *s,float x,float v,float target,float alpha,float dt) {
     if(!s) return 0;
-    if(!ArmPositionMpc_TargetAllowedForDevice(id,target)||!ArmPositionMpc_TargetAllowedForDevice(id,x)||
+    if(!ArmPositionMpc_TargetAllowedForDevice(id,target)||!isfinite(x)||
        !isfinite(v)||!isfinite(alpha)||alpha<=0||!isfinite(dt)||dt<=0||dt>.05f) {
         ArmPositionMpc_Reset(s); return 0;
     }
@@ -68,10 +68,10 @@ float ArmPositionMpc_UpdateForDevice(uint8_t id, ArmPositionMpc *s,float x,float
         }
         s->reference=s->u[0];
     }
-    /* 毎2ms更新する端接近時の速度包絡。既存の範囲/FB鮮度ラッチも維持。
+    /* 毎2ms更新する端接近時の速度包絡。範囲外からは内側方向だけ許可。
      * 実機の制動距離保証ではなく、初期試験の追加抑制。 */
     if (id == 2U) return clip(s->reference,ARM_MPC_SPEED);
-    const float upper=fminf(ARM_MPC_SPEED,(ARM_TEST_POSITION_MAX_DEG-x)/(1/alpha+.15f));
-    const float lower=fminf(ARM_MPC_SPEED,(x-ARM_TEST_POSITION_MIN_DEG)/(1/alpha+.15f));
+    const float upper=clip((ARM_TEST_POSITION_MAX_DEG-x)/(1/alpha+.15f),ARM_MPC_SPEED);
+    const float lower=clip((x-ARM_TEST_POSITION_MIN_DEG)/(1/alpha+.15f),ARM_MPC_SPEED);
     return fmaxf(-lower,fminf(upper,s->reference));
 }
